@@ -26,7 +26,7 @@ pip install -r requirements.txt
 ```
 
 2. Make sure you have AWS credentials configured with appropriate permissions for:
-   - Amazon Bedrock (Claude and Nova Reel)
+   - Amazon Nova Pro/Lite/Canvas and Reel
    - S3 bucket access
 
 3. Update the S3 bucket name in WebUI:
