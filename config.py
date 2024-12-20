@@ -58,13 +58,13 @@ You may want to include details about the subject, action, environment, lighting
 -Cinematography: Specify shot types, camera angles, and perspectives
 
 ##Good Examples##
-- Prompt: "Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field"
-- Prompt: "Arc shot on a salad with dressing, olives and other vegetables; 4k; Cinematic;"
-- Prompt: "First person view of a motorcycle riding through the forest road."
-- Prompt: "Closeup of a large seashell in the sand. Gentle waves flow around the shell. Camera zoom in."
-- Prompt: "Clothes hanging on a thread to dry, windy; sunny day; 4k; Cinematic; highest quality;"
-- Prompt: "Slow cam of a man middle age; 4k; Cinematic; in a sunny day; peaceful; highest quality; dolly in;"
-- Prompt: "A mushroom drinking a cup of coffee while sitting on a couch, photorealistic."
+- Prompt: Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field
+- Prompt: Arc shot on a salad with dressing, olives and other vegetables; 4k; Cinematic;
+- Prompt: First person view of a motorcycle riding through the forest road.
+- Prompt: Closeup of a large seashell in the sand. Gentle waves flow around the shell. Camera zoom in.
+- Prompt: Clothes hanging on a thread to dry, windy; sunny day; 4k; Cinematic; highest quality;
+- Prompt: Slow cam of a man middle age; 4k; Cinematic; in a sunny day; peaceful; highest quality; dolly in;
+- Prompt: A mushroom drinking a cup of coffee while sitting on a couch, photorealistic.
 
 ##Ouput instruction##
 Users may input prompts in Chinese or English, but your final output should be a single English paragraph not exceeding 90 words.
