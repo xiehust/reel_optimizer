@@ -58,7 +58,7 @@ python app.py
    - Click "Generate Image" to start the create image
    - View the optimized prompt and generated video
    - You can compare the videos between original and optimized version
-![alt text](assets/image.png)
+![alt text](assets/image5.png)
 
 ## Notes
 
