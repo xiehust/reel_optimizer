@@ -402,7 +402,7 @@ def create_interface():
                         )
                         model_input = gr.Dropdown(
                             choices=list(MODEL_OPTIONS.keys()),
-                            value="Nova Lite",
+                            value="Nova Pro",
                             label="Model",
                             info="Select the model for prompt optimization"
                         )

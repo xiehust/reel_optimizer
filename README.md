@@ -63,7 +63,7 @@ python app.py
 ## Notes
 
 - The application uses Amazon Nova to optimize prompts for better video generation results
-- I found that `Nova Pro` works better for image optimzation while `Nova Lite` works bettern for video, so the default options were set as so. 
+- I found sometimes that `Nova Pro` works better for image optimzation while `Nova Lite` works bettern for video, so you can swith the model to try. 
 - Video generation may take several minutes to complete
 - Generated videos are temporarily stored in the `generated_videos` directory
 - Generated images are temporarily stored in the `generated_images` directory
