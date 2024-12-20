@@ -2,7 +2,10 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.DS_Store
+.gradio/
+generated_images/
+generated_videos/
 # C extensions
 *.so
 

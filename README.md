@@ -1,20 +1,21 @@
 # Nova Reel Prompt Optimizer
 
-A Gradio web interface for optimizing prompts and generating videos using Amazon's Nova Reel service.
+A Gradio web interface for optimizing prompts and generating videos using Amazon's Nova [Canvas and Reel model](https://docs.aws.amazon.com/nova/latest/userguide/content-generation.html).
 
 ## Features
-
-- Text prompt optimization for video generation
+- Text prompt optimization for Nova Canvas image generation
+- Text prompt optimization for Nova Reel video generation
 - Support for image-to-video generation with optional image input
-- Real-time prompt optimization using Claude
+- 1-click to copy the generated image from Canvas to for Reel video generation
+- Real-time prompt optimization using Nova
 - Video generation using Nova Reel
 - User-friendly web interface
 
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.10+
 - AWS credentials configured with access to Bedrock and S3
-- An S3 bucket for video output
+- An S3 bucket for video output (You can copy the default bucket created from Nova Reel when you first time play with it in Bedrock Console)
 
 ## Installation
 
@@ -28,13 +29,10 @@ pip install -r requirements.txt
    - Amazon Bedrock (Claude and Nova Reel)
    - S3 bucket access
 
-3. Update the S3 bucket name in `app.py`:
-   ```python
-   BUCKET = "s3://your-bucket-name"  # Replace with your S3 bucket
-   ```
+3. Update the S3 bucket name in WebUI:
+![alt text](assets/image1.png)
 
 ## Usage
-
 1. Start the Gradio interface:
 
 ```bash
@@ -43,17 +41,32 @@ python app.py
 
 2. Open your web browser and navigate to the URL shown in the terminal (typically http://127.0.0.1:7860)
 
-3. In the web interface:
+3. Image generation
+![alt text](assets/image2.png)
    - Enter your prompt in the text box
-   - Optionally upload an image
-   - Click "Generate" to start the process
+   - Click "Optimze Prompt" to start the create Optimized Prompt and Negative Prompt (If needed)
+   - Click "Generate Image" to start the create images
+   - View the optimized prompt and generated images
+   - 1-click to copy the image to Video generation
+![alt text](assets/image3.png)
+
+4. Video generation
+![alt text](assets/image4.png)
+   - Enter your prompt in the text box
+   - Optionally upload an image or 1-click copy from Image generation
+   - Click "Optimze Prompt" to start the create Optimized Prompt and Negative Prompt (If needed)
+   - Click "Generate Image" to start the create image
    - View the optimized prompt and generated video
+   - You can compare the videos between original and optimized version
+![alt text](assets/image.png)
 
 ## Notes
 
-- The application uses Claude to optimize prompts for better video generation results
+- The application uses Amazon Nova to optimize prompts for better video generation results
+- I found that `Nova Pro` works better for image optimzation while `Nova Lite` works bettern for video, so the default options were set as so. 
 - Video generation may take several minutes to complete
 - Generated videos are temporarily stored in the `generated_videos` directory
+- Generated images are temporarily stored in the `generated_images` directory
 - Both English and Chinese prompts are supported, but optimized prompts will be in English
 
 ## Example Prompts
