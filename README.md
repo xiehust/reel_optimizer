@@ -29,7 +29,7 @@ pip install -r requirements.txt
    - Amazon Nova Pro/Lite/Canvas and Reel
    - S3 bucket access
 
-3. Update the S3 bucket name in WebUI:
+3. Update the S3 bucket name in WebUI or you can change it in `config.py` `DEFAULT_BUCKET=`:
 ![alt text](assets/image1.png)
 
 ## Usage
@@ -78,4 +78,5 @@ A serene lake at sunset with gentle ripples on the water
 
 Image + text example:
 ```
-Transform this winter scene into a magical snowfall
+Drone view flying
+```
