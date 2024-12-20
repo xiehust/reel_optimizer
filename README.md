@@ -71,12 +71,15 @@ python app.py
 
 ## Example Prompts
 
-Text-only example:
+### Text to Image example:
 ```
-A serene lake at sunset with gentle ripples on the water
-```
+A colorful underwater world
+```   
+- ![alt text](assets/image6.png)
 
-Image + text example:
+### Image + text to Vedio example:
 ```
 Drone view flying
-```
+```  
+- ![alt text](assets/fv0nyln9c8wq.mp4)
+
