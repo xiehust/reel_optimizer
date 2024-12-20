@@ -5,10 +5,10 @@ A Gradio web interface for optimizing prompts and generating videos using Amazon
 ## Features
 - Text prompt optimization for Nova Canvas image generation
 - Text prompt optimization for Nova Reel video generation
-- Support for image-to-video generation with optional image input
+- 1-click automatically optimize any languages & any prompts, with the reference of Nova official guideline.
 - 1-click to copy the generated image from Canvas to for Reel video generation
 - Real-time prompt optimization using Nova
-- Video generation using Nova Reel
+- Comparison Videos generation from original prompt and optimized prompt
 - User-friendly web interface
 
 ## Prerequisites
@@ -63,7 +63,7 @@ python app.py
 ## Notes
 
 - The application uses Amazon Nova to optimize prompts for better video generation results
-- I found sometimes that `Nova Pro` works better for image optimzation while `Nova Lite` works bettern for video, so you can swith the model to try. 
+- I found sometimes that `Nova Pro` works better for image optimzation while `Nova Lite` works better for video, so you can switch the model to try. 
 - Video generation may take several minutes to complete
 - Generated videos are temporarily stored in the `generated_videos` directory
 - Generated images are temporarily stored in the `generated_images` directory
