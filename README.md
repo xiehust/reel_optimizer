@@ -73,13 +73,11 @@ python app.py
 
 ### Text to Image example:
 ```
-A colorful underwater world
-```   
-- ![alt text](assets/image6.png)
-
-### Image + text to Vedio example:
+海底漫游的视频
 ```
-Drone view flying
-```  
-- ![alt text](assets/fv0nyln9c8wq.mp4)
+```
+a video of walking in a underwater world
+```   
+
+
 
