@@ -19,7 +19,7 @@ You may want to include details about the subject, action, environment, lighting
 -Scene: Elaborate background details based on context
 -Emotional atmosphere: Describe the mood and overall ambiance
 -Visual effects: Define style (e.g., Pixar, cinematic, hyperrealistic, 3D animation) and describe lighting, color tones, and contrast.
--Cinematography: Specify shot types, camera angles, and perspectives (avoid complex camera movements)
+-Cinematography: Specify shot types, camera angles, and perspectives (avoid complex camera movements),refer to 'Camera Prompt 运镜指南' in DocumentPDFmessages. 
 
 ##Good Examples##
 - Prompt: "Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field"
@@ -55,7 +55,7 @@ You may want to include details about the subject, action, environment, lighting
 -Scene: Detailed description of video background, including location, environment, setting, season, time, etc., emphasizing details.
 -Emotion and Atmosphere: Description of emotions and overall atmosphere conveyed in the video, referencing the image and user's prompt.
 -Visual Effects: Description of the visual style from user-uploaded images, such as Pixar animation, film style, realistic style, 3D animation, including descriptions of color schemes, lighting types, and contrast.
--Cinematography: Specify shot types, camera angles, and perspectives
+-Cinematography: Specify shot types, camera angles, and perspectives, please refer to 'Camera Prompt 运镜指南' in DocumentPDFmessages. 
 
 ##Good Examples##
 - Prompt: Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field
