@@ -2,6 +2,11 @@
 
 A Gradio web interface for optimizing prompts and generating videos using Amazon's Nova [Canvas and Reel model](https://docs.aws.amazon.com/nova/latest/userguide/content-generation.html).
 
+## Update Logs
+### 12/23/2024
+- Add seed, cfg scale, Aspect ratio
+- Add option to enable/disable comparison mode 
+
 ## Features
 - Text prompt optimization for Nova Canvas image generation
 - Text prompt optimization for Nova Reel video generation

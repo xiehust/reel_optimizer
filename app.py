@@ -190,23 +190,31 @@ def optimize_canvas_prompt(prompt, model_name):
     
     return prompt, negative_prompt
 
-def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1):
+def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
     """Generate images in parallel for both original and optimized prompts"""
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         # Submit both image generation tasks
         future_original = executor.submit(
-            generate_single_image, 
-            original_prompt, 
-            negative_prompt, 
-            quality, 
-            num_images
+            generate_single_image,
+            original_prompt,
+            negative_prompt,
+            quality,
+            num_images,
+            height,
+            width,
+            seed,
+            cfg_scale
         )
         future_optimized = executor.submit(
-            generate_single_image, 
-            optimized_prompt, 
-            negative_prompt, 
-            quality, 
-            num_images
+            generate_single_image,
+            optimized_prompt,
+            negative_prompt,
+            quality,
+            num_images,
+            height,
+            width,
+            seed,
+            cfg_scale
         )
         
         # Wait for both tasks to complete
@@ -222,7 +230,7 @@ def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", q
             
         return all_images
 
-def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1):
+def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
     """Generate image using Nova Canvas model"""
     body = json.dumps({
         "taskType": "TEXT_IMAGE",
@@ -234,10 +242,10 @@ def generate_single_image(prompt, negative_prompt="", quality="standard", num_im
         },
         "imageGenerationConfig": {
             "numberOfImages": int(num_images),  # Ensure integer
-            "height": TARGET_HEIGHT,
-            "width": TARGET_WIDTH,
-            "cfgScale": 6.5,
-            "seed": 0,
+            "height": int(height),
+            "width": int(width),
+            "cfgScale": float(cfg_scale),
+            "seed":  random.randint(0,858993459) if int(seed) == -1 else int(seed),
             "quality": quality
         }
     })
@@ -272,7 +280,7 @@ def generate_single_image(prompt, negative_prompt="", quality="standard", num_im
         print(f"Error generating image: {str(e)}")
         return None
 
-def generate_video(prompt, bucket, image=None):
+def generate_video(prompt, bucket, image=None, seed=0):
     if image is not None:
         image = process_image(image)
     
@@ -286,7 +294,7 @@ def generate_video(prompt, bucket, image=None):
             "durationSeconds": 6,
             "fps": 24,
             "dimension": "1280x720",
-            "seed": 0,
+            "seed": random.randint(0,858993459) if int(seed) == -1 else int(seed),
         },
     }
     
@@ -331,12 +339,12 @@ def generate_video(prompt, bucket, image=None):
     
     return local_path
 
-def generate_comparison_videos(original_prompt, optimized_prompt, bucket, image=None):
+def generate_comparison_videos(original_prompt, optimized_prompt, bucket, image=None, seed=0):
     # Create a thread pool executor
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         # Submit both video generation tasks
-        future_original = executor.submit(generate_video, original_prompt, bucket, image)
-        future_optimized = executor.submit(generate_video, optimized_prompt, bucket, image)
+        future_original = executor.submit(generate_video, original_prompt, bucket, image, seed)
+        future_optimized = executor.submit(generate_video, optimized_prompt, bucket, image, seed)
         
         # Wait for both tasks to complete
         original_video = future_original.result()
@@ -400,6 +408,61 @@ def create_interface():
                             label="Number of Images",
                             info="Number of images to generate (1-5)"
                         )
+                        canvas_size = gr.Dropdown(
+                            choices=[
+                                "1024 x 1024 (1:1)",
+                                "2048 x 2048 (1:1)",
+                                "1024 x 336 (3:1)",
+                                "1024 x 512 (2:1)",
+                                "1024 x 576 (16:9)",
+                                "1024 x 627 (3:2)",
+                                "1024 x 816 (5:4)",
+                                "1280 x 720 (16:9)",
+                                "2048 x 512 (4:1)",
+                                "2288 x 1824 (5:4)",
+                                "2512 x 1664 (3:2)",
+                                "2720 x 1520 (16:9)",
+                                "2896 x 1440 (2:1)",
+                                "3536 x 1168 (3:1)",
+                                "4096 x 1024 (4:1)",
+                                "336 x 1024 (1:3)",
+                                "512 x 1024 (1:2)",
+                                "512 x 2048 (1:4)",
+                                "576 x 1024 (9:16)",
+                                "672 x 1024 (2:3)",
+                                "720 x 1280 (9:16)",
+                                "816 x 1024 (4:5)",
+                                "1024 x 4096 (1:4)",
+                                "1168 x 3536 (1:3)",
+                                "1440 x 2896 (1:2)",
+                                "1520 x 2720 (9:16)",
+                                "1664 x 2512 (2:3)",
+                                "1824 x 2288 (4:5)"
+
+                            ],
+                            value="1280 x 720 (16:9)",
+                            label="Size (px) / Aspect ratio",
+                            info="Select image dimensions"
+                        )
+                        canvas_seed = gr.Number(
+                            value=0,
+                            minimum=-1,
+                            label="Seed",
+                            info="Random seed (-1 for random)"
+                        )
+                        canvas_cfg_scale = gr.Slider(
+                            value=6.5,
+                            minimum=1.0,
+                            maximum=20.0,
+                            step=0.5,
+                            label="CFG Scale",
+                            info="How closely to follow the prompt"
+                        )
+                        comparison_mode_image = gr.Checkbox(
+                            label="Comparison Mode",
+                            value=False,
+                            info="Generate image with original prompt for comparison"
+                        )
                     
                     with gr.Column():
                         canvas_optimized_prompt = gr.Textbox(label="Optimized Prompt")
@@ -457,7 +520,18 @@ def create_interface():
                             value=DEFAULT_BUCKET,
                             info="S3 bucket for video output"
                         )
+                        comparison_mode_video = gr.Checkbox(
+                            label="Comparison Mode",
+                            value=False,
+                            info="Generate video with original prompt for comparison"
+                        )
                         image_input = gr.Image(label="Upload an image (optional)", type="pil")
+                        video_seed = gr.Number(
+                            value=0,
+                            minimum=-1,
+                            label="Seed",
+                            info="Random seed (-1 for random)"
+                        )
                     
                     with gr.Column():
                         optimized_prompt = gr.Textbox(
@@ -465,7 +539,7 @@ def create_interface():
                             info="Length: 0 chars"
                         )
                         optimize_btn = gr.Button("Optimize Prompt")
-                        generate_comparison_btn = gr.Button("Generate Comparison Videos")
+                        generate_comparison_btn = gr.Button("Generate Videos")
                 
                 gr.Markdown("## Video Comparison")
                 with gr.Row():
@@ -487,9 +561,18 @@ def create_interface():
             outputs=optimized_prompt
         )
         
+        def generate_videos_with_comparison(original_prompt, optimized_prompt, bucket, image, comparison_mode, seed):
+            if comparison_mode:
+                # Generate both original and optimized videos
+                return generate_comparison_videos(original_prompt, optimized_prompt, bucket, image, seed)
+            else:
+                # Generate only optimized video
+                optimized = generate_video(optimized_prompt, bucket, image, seed)
+                return None, optimized
+        
         generate_comparison_btn.click(
-            fn=generate_comparison_videos,
-            inputs=[prompt_input, optimized_prompt, bucket_input, image_input],
+            fn=generate_videos_with_comparison,
+            inputs=[prompt_input, optimized_prompt, bucket_input, image_input, comparison_mode_video, video_seed],
             outputs=[original_video, optimized_video]
         )
 
@@ -504,17 +587,37 @@ def create_interface():
             outputs=[canvas_optimized_prompt, canvas_negative_prompt]
         )
         
-        def split_images(all_images, num_images):
-            if not all_images:
-                return None, None
-            mid = len(all_images) // 2
-            return all_images[:mid], all_images[mid:]
+        def generate_images_with_comparison(original_prompt, optimized_prompt, negative_prompt, quality, num_images, size, seed, cfg_scale, comparison_mode):
+            # Parse dimensions from size string
+            dimensions = size.split(" (")[0].split(" x ")
+            width = int(dimensions[0])
+            height = int(dimensions[1])
+            
+            if comparison_mode:
+                # Generate both original and optimized images
+                all_images = generate_image_pair(original_prompt, optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale)
+                if not all_images:
+                    return None, None
+                mid = len(all_images) // 2
+                return all_images[:mid], all_images[mid:]
+            else:
+                # Generate only optimized images
+                optimized_images = generate_single_image(optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale)
+                return None, optimized_images
 
         canvas_generate_btn.click(
-            fn=lambda p1, p2, n, q, num: split_images(
-                generate_image_pair(p1, p2, n, q, num), num
-            ),
-            inputs=[canvas_prompt_input, canvas_optimized_prompt, canvas_negative_prompt, canvas_quality, canvas_num_images],
+            fn=generate_images_with_comparison,
+            inputs=[
+                canvas_prompt_input,
+                canvas_optimized_prompt,
+                canvas_negative_prompt,
+                canvas_quality,
+                canvas_num_images,
+                canvas_size,
+                canvas_seed,
+                canvas_cfg_scale,
+                comparison_mode_image
+            ],
             outputs=[original_images, optimized_images]
         )
 
