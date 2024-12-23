@@ -190,7 +190,39 @@ def optimize_canvas_prompt(prompt, model_name):
     
     return prompt, negative_prompt
 
-def generate_image(prompt, negative_prompt="", quality="standard", num_images=1):
+def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1):
+    """Generate images in parallel for both original and optimized prompts"""
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        # Submit both image generation tasks
+        future_original = executor.submit(
+            generate_single_image, 
+            original_prompt, 
+            negative_prompt, 
+            quality, 
+            num_images
+        )
+        future_optimized = executor.submit(
+            generate_single_image, 
+            optimized_prompt, 
+            negative_prompt, 
+            quality, 
+            num_images
+        )
+        
+        # Wait for both tasks to complete
+        original_images = future_original.result()
+        optimized_images = future_optimized.result()
+        
+        # Combine results
+        all_images = []
+        if original_images:
+            all_images.extend(original_images)
+        if optimized_images:
+            all_images.extend(optimized_images)
+            
+        return all_images
+
+def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1):
     """Generate image using Nova Canvas model"""
     body = json.dumps({
         "taskType": "TEXT_IMAGE",
@@ -377,15 +409,29 @@ def create_interface():
                 
                 gr.Markdown("## Generated Images")
                 gr.Markdown("*Click on an image to select it for video generation*")
-                generated_images = gr.Gallery(
-                    label="Generated Images",
-                    show_label=True,
-                    elem_id="generated_images",
-                    columns=[2],
-                    rows=[2],
-                    height="auto",
-                    allow_preview=True
-                )
+                with gr.Row():
+                    with gr.Column():
+                        gr.Markdown("### Original Prompt Images")
+                        original_images = gr.Gallery(
+                            label="Original Images",
+                            show_label=True,
+                            elem_id="original_images",
+                            columns=[2],
+                            rows=[1],
+                            height="auto",
+                            allow_preview=True
+                        )
+                    with gr.Column():
+                        gr.Markdown("### Optimized Prompt Images")
+                        optimized_images = gr.Gallery(
+                            label="Optimized Images",
+                            show_label=True,
+                            elem_id="optimized_images",
+                            columns=[2],
+                            rows=[1],
+                            height="auto",
+                            allow_preview=True
+                        )
                 with gr.Row():
                     selected_image_indicator = gr.Markdown("No image selected")
                     send_to_video_btn = gr.Button("Send Selected Image to Video Generation", interactive=False)
@@ -458,31 +504,48 @@ def create_interface():
             outputs=[canvas_optimized_prompt, canvas_negative_prompt]
         )
         
+        def split_images(all_images, num_images):
+            if not all_images:
+                return None, None
+            mid = len(all_images) // 2
+            return all_images[:mid], all_images[mid:]
+
         canvas_generate_btn.click(
-            fn=generate_image,
-            inputs=[canvas_optimized_prompt, canvas_negative_prompt, canvas_quality, canvas_num_images],
-            outputs=generated_images
+            fn=lambda p1, p2, n, q, num: split_images(
+                generate_image_pair(p1, p2, n, q, num), num
+            ),
+            inputs=[canvas_prompt_input, canvas_optimized_prompt, canvas_negative_prompt, canvas_quality, canvas_num_images],
+            outputs=[original_images, optimized_images]
         )
 
         # Handle image selection
-        def on_image_select(evt: gr.SelectData, gallery):
+        def on_image_select(evt: gr.SelectData, original_gallery, optimized_gallery):
             """Handle image selection in gallery"""
-            if evt is None or gallery is None:
+            if evt is None or (original_gallery is None and optimized_gallery is None):
                 return None, gr.update(value="No image selected"), gr.update(interactive=False)
             
-            # Get the selected image path from gallery
-            selected_path = gallery[evt.index] if isinstance(gallery[evt.index], str) else gallery[evt.index][0]
-            return selected_path, gr.update(value=f"Image {evt.index + 1} selected"), gr.update(interactive=True)
+            # Determine which gallery was clicked and get the image path
+            gallery = original_gallery if evt.target.elem_id == "original_images" else optimized_gallery
+            gallery_index = evt.index
+            
+            # Handle both string paths and tuple/list paths
+            if gallery and gallery_index < len(gallery):
+                item = gallery[gallery_index]
+                selected_path = item[0] if isinstance(item, (list, tuple)) else item
+                gallery_name = "Original" if evt.target.elem_id == "original_images" else "Optimized"
+                return selected_path, gr.update(value=f"{gallery_name} Image {gallery_index + 1} selected"), gr.update(interactive=True)
+            
+            return None, gr.update(value="No image selected"), gr.update(interactive=False)
 
         # Function to send selected image to video tab
         def send_to_video(selected_path, gallery):
             """Send selected image to video tab"""
-            if selected_path is None or gallery is None:
+            if selected_path is None:
                 return [
                     None,  # image_input
                     None,  # selected_image
                     gr.update(value="No image selected"),  # indicator
-                    gr.update(interactive=False),  # button
+                    gr.update(interactive=True),  # Keep button interactive
                     gr.update(selected="video_generation")  # tabs
                 ]
             
@@ -493,25 +556,30 @@ def create_interface():
                 # Return values to update UI
                 return [
                     image,  # Update image_input
-                    None,   # Reset selected_image state
+                    selected_path,   # Maintain selected_image state
                     gr.update(value="No image selected"),  # Reset selection indicator
-                    gr.update(interactive=False),  # Disable send button
+                    gr.update(interactive=True),  # Keep button interactive
                     gr.update(selected="video_generation")  # Switch to video tab
                 ]
             except Exception as e:
                 print(f"Error loading image: {str(e)}")
-                return [None, None, gr.update(value="Error loading image"), gr.update(interactive=False), gr.update(selected="video_generation")]
+                return [None, None, gr.update(value="Error loading image"), gr.update(interactive=True), gr.update(selected="video_generation")]
 
         # Add event handlers for image selection and transfer
-        generated_images.select(
+        original_images.select(
             fn=on_image_select,
-            inputs=[generated_images],
+            inputs=[original_images, optimized_images],
+            outputs=[selected_image, selected_image_indicator, send_to_video_btn]
+        )
+        optimized_images.select(
+            fn=on_image_select,
+            inputs=[original_images, optimized_images],
             outputs=[selected_image, selected_image_indicator, send_to_video_btn]
         )
 
         send_to_video_btn.click(
             fn=send_to_video,
-            inputs=[selected_image, generated_images],
+            inputs=[selected_image, optimized_images],
             outputs=[
                 image_input,
                 selected_image,
