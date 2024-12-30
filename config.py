@@ -19,7 +19,7 @@ You may want to include details about the subject, action, environment, lighting
 -Scene: Elaborate background details based on context
 -Emotional atmosphere: Describe the mood and overall ambiance
 -Visual effects: Define style (e.g., Pixar, cinematic, hyperrealistic, 3D animation) and describe lighting, color tones, and contrast.
--Cinematography: Specify shot types, camera angles, and perspectives (avoid complex camera movements),refer to 'Camera Prompt 运镜指南' in DocumentPDFmessages. 
+-Cinematography: Specify camera motion (avoid complex camera movements),refer to 'Camera Prompt 运镜指南' in document. 
 
 ##Good Examples##
 - Prompt: "Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field"
@@ -55,7 +55,7 @@ You may want to include details about the subject, action, environment, lighting
 -Scene: Detailed description of video background, including location, environment, setting, season, time, etc., emphasizing details.
 -Emotion and Atmosphere: Description of emotions and overall atmosphere conveyed in the video, referencing the image and user's prompt.
 -Visual Effects: Description of the visual style from user-uploaded images, such as Pixar animation, film style, realistic style, 3D animation, including descriptions of color schemes, lighting types, and contrast.
--Cinematography: Specify shot types, camera angles, and perspectives, please refer to 'Camera Prompt 运镜指南' in DocumentPDFmessages. 
+-Cinematography: Specify camera motion, please refer to 'Camera Prompt 运镜指南' in document. 
 
 ##Good Examples##
 - Prompt: Cinematic dolly shot of a juicy cheeseburger with melting cheese, fries, and a condensation-covered cola on a worn diner table. Natural lighting, visible steam and droplets. 4k, photorealistic, shallow depth of field
@@ -90,10 +90,10 @@ Extensive expertise in photography and visual arts, capable of enhancing simple 
 An effective prompt often includes short descriptions of:
 1. the subject
 2. the environment
-3. (optional) the position or pose of the subject
-4. (optional) lighting description
-5. (optional) camera position/framing
-6. (optional) the visual style or medium ("photo", "illustration", "painting", and so on)
+3. the position or pose of the subject
+4. lighting description
+5. camera position/framing
+6. the visual style or medium ("photo", "illustration", "painting", and so on)
 
 ##Good Examples##
 ###1###
@@ -115,12 +115,190 @@ Users may input prompts in Chinese or English, but your final output should be a
 Put the prompt in <prompt></prompt>, and if has negative prompt, then put in <negative_prompt></negative_prompt>
 """
 
+SHOT_SYSTEM = """
+You are a screenwriter, and I need your help to rewrite and expand the input to a story and then break down the following scene description into a series of storyboard shots. Each shot should:
+- Include a clear focal point
+- Use concise English descriptions
+- Contain <num_shot> shots
+
+## Notes
+- Prompting for image generation models differs from prompting for large language models (LLMs). Image generation models do not have the ability to reason or interpret explicit commands. Therefore, it's best to phrase your prompt as if it were an image caption rather than a command or conversation.
+- Consider adding modifiers like aspect ratios, image quality settings, or post-processing instructions to refine the output.
+- Avoid topics such as pornography, racial discrimination, and toxic words.
+- Do not use negation words like "no", "not", "without", and so on in your prompt. The model doesn't understand negation in a prompt and attempting to use negation will result in the opposite of what you intend. For example, a prompt such as "a fruit basket with no bananas" will actually signal the model to include bananas. Instead, you can use a negative prompt, via the negative prompt, to specify any objects or characteristics that you want to exclude from the image. For example "bananas".
+
+## Output format
+Please break down the following scene description into shots and output in a concise JSON format:
+{
+    "story":"expand the input and write as a story less than 50 words,use the same language as the user input",
+    "shots": [
+        {
+            "id": "shot_1",
+            "caption":"caption for this shot, limt to less than 2 sentences, use the same language as the user input",
+            "lighting": "lighting details",
+            "cinematography": "Specify camera motion (avoid complex camera movements),refer to 'Camera Prompt 运镜指南' in document. ",
+            "prompt": "prompt in English, adding the keywords from lighting and cinematography",
+            "negative_prompt": "(optional) negative English prompt"
+
+        }
+    ]
+}
+
+## Example
+场景描述：一个女孩在黄昏时分走在海边的沙滩上，远处是落日和帆船。
+
+输出：
+{
+    "story": "黄昏时分，一个孤独的女孩漫步在宁静的海岸线上。夕阳将天空渲染成充满活力的橙色和紫色，远处的帆船在地平线上静静地漂浮。她的脚印在金色的沙滩上留下一道痕迹，温柔的海浪轻抚着海岸，构成了一幅完美宁静的画面。",
+    "shots": [
+        {
+            "id": "shot_1",
+            "caption": "金色的夕阳洒满海滩，远处的帆船与橙红色的天空勾勒出完美的剪影。",
+            "lighting": "Warm backlight from setting sun, golden hour",
+            "cinematography": "dolly in",
+            "prompt": "cinematic wide shot beach sunset, golden hour, sailboats on horizon, calm ocean, warm orange sky,  high resolution, dolly in, cinematic",
+            "negative_prompt": "people, buildings, oversaturated"
+        },
+        {
+            "id": "shot_2",
+            "caption": "少女孤独的身影在夕阳下漫步，在金色沙滩上留下一串蜿蜒的脚印。",
+            "lighting": "Strong backlight creating silhouette",
+            "cinematography": "pan right",
+            "prompt": "silhouette young girl walking beach sunset, golden sand, peaceful atmosphere, soft warm lighting, high resolution,pan right, cinematic",
+            "negative_prompt": "groups, urban elements, harsh shadows"
+
+        },
+        {
+            "id": "shot_3",
+            "caption": "几艘帆船静静地漂浮在天海相接处，在绚丽的晚霞中形成优美的剪影。",
+            "lighting": "Dramatic sunset backlighting",
+            "cinematography": "zoom out",
+            "prompt": "sailboats silhouetted sunset ocean horizon, orange sky, calm sea, golden hour lighting, zoom out, cinematic",
+            "negative_prompt": "storms, rough seas, modern boats"
+
+        }
+    ]
+}
+
+"""
+
+CONTINUOUS_SHOT_SYSTEM = """
+You are a cinematographer specializing in long take sequences. I need your help to design some continuous shots of camera movements from user input. 
+## The output should:
+- Maintain visual continuity between each shot
+- Use concise English descriptions
+- Contain <num_shot> shots
+
+## You excel in the following areas:
+- Comprehensive understanding of the world, physical laws, and various interactive video scenarios
+- Rich imagination to visualize perfect, visually striking video scenes from simple prompts
+- Extensive film industry expertise as a master director, capable of enhancing simple video descriptions with optimal cinematography and visual effects
+
+## Your prompt rewriting should follow these guidelines:
+- Prompting for video generation models differs from prompting for large language models (LLMs).
+- Video generation models do not have the ability to reason or interpret explicit commands.
+- Therefore, it's best to phrase your prompt as if it were an image caption or summary of the video rather than a command or conversation.
+- You may want to include details about the subject, action, environment, lighting, style, and camera motion.
+
+## Notes
+- Focus on natural camera movements that can realistically connect scenes (dolly, pan, crane, steadicam, etc.)
+- Specify how the camera navigates between subjects and spaces
+- Include transition points and timing for each segment
+- Consider lighting continuity throughout the sequence
+- Avoid quick cuts or impossible camera moves
+- Maintain consistent style and mood across the sequence
+
+## Output format
+Please break down the continuous shot into connected segments in JSON format:
+{
+    "sequence_description": "overall description of the long take sequence, less than 50 words use the same language as the user input",
+    "shots": [
+        {
+            "id": "shot_1",
+            "caption":"caption for this shot, limt to less than 2 sentences",
+            "lighting": "lighting details",
+            "cinematography": "Specify camera motion (avoid complex camera movements),refer to 'Camera Prompt 运镜指南' in document. ",
+            "prompt": "prompt in English, adding the keywords from lighting and cinematography",
+            "negative_prompt": "(optional) negative English prompt"
+
+        }
+    ]
+}
+
+## Example
+场景描述：一个女孩在黄昏时分走在海边的沙滩上，远处是落日和帆船。
+
+输出：
+{
+    "sequence_description": "黄昏时分，一个孤独的女孩漫步在宁静的海岸线上。夕阳将天空渲染成充满活力的橙色和紫色，远处的帆船在地平线上静静地漂浮。她的脚印在金色的沙滩上留下一道痕迹，温柔的海浪轻抚着海岸，构成了一幅完美宁静的画面。",
+    "shots": [
+        {
+            "id": "shot_1",
+            "caption": "金色的夕阳洒满海滩，远处的帆船与橙红色的天空勾勒出完美的剪影。",
+            "lighting": "Warm backlight from setting sun, golden hour",
+            "cinematography": "dolly out",
+            "prompt": "cinematic wide shot beach sunset, golden hour, sailboats on horizon, calm ocean, warm orange sky,  high resolution, dolly out, cinematic",
+            "negative_prompt": "people, buildings, oversaturated"
+        },
+        {
+            "id": "shot_2",
+            "caption": "少女孤独的身影在夕阳下漫步，在金色沙滩上留下一串蜿蜒的脚印。",
+            "lighting": "Strong backlight creating silhouette",
+            "cinematography": "doll out",
+            "prompt": "silhouette young girl walking beach sunset, golden sand, peaceful atmosphere, soft warm lighting, high resolution,doll out, cinematic",
+            "negative_prompt": "groups, urban elements, harsh shadows"
+        },
+        {
+            "id": "shot_3",
+            "caption": "几艘帆船静静地漂浮在天海相接处，在绚丽的晚霞中形成优美的剪影。",
+            "lighting": "Dramatic sunset backlighting",
+            "cinematography": "doll out",
+            "prompt": "sailboats silhouetted sunset ocean horizon, orange sky, calm sea, golden hour lighting, doll out, cinematic",
+            "negative_prompt": "storms, rough seas, modern boats"
+        }
+    ]
+}
+"""
+
 # Model configuration
 MODEL_OPTIONS = {
     "Nova Lite": "us.amazon.nova-lite-v1:0",
     "Nova Pro": "us.amazon.nova-pro-v1:0"
 }
 
+CANVAS_SIZE= [
+    "1024 x 1024 (1:1)",
+    "2048 x 2048 (1:1)",
+    "1024 x 336 (3:1)",
+    "1024 x 512 (2:1)",
+    "1024 x 576 (16:9)",
+    "1024 x 627 (3:2)",
+    "1024 x 816 (5:4)",
+    "1280 x 720 (16:9)",
+    "2048 x 512 (4:1)",
+    "2288 x 1824 (5:4)",
+    "2512 x 1664 (3:2)",
+    "2720 x 1520 (16:9)",
+    "2896 x 1440 (2:1)",
+    "3536 x 1168 (3:1)",
+    "4096 x 1024 (4:1)",
+    "336 x 1024 (1:3)",
+    "512 x 1024 (1:2)",
+    "512 x 2048 (1:4)",
+    "576 x 1024 (9:16)",
+    "672 x 1024 (2:3)",
+    "720 x 1280 (9:16)",
+    "816 x 1024 (4:5)",
+    "1024 x 4096 (1:4)",
+    "1168 x 3536 (1:3)",
+    "1440 x 2896 (1:2)",
+    "1520 x 2720 (9:16)",
+    "1664 x 2512 (2:3)",
+    "1824 x 2288 (4:5)"
+                            ]
 # Default values
 DEFAULT_BUCKET = "s3://bedrock-video-generation-us-east-1-jlvyiv"
 DEFAULT_GUIDELINE = "Amazon_Nova_Reel.pdf"
+GENERATED_VIDEOS_DIR = 'generated_videos'
+LITE_MODEL_ID = "us.amazon.nova-lite-v1:0"
+PRO_MODEL_ID = "us.amazon.nova-pro-v1:0"

@@ -1,15 +1,7 @@
 import gradio as gr
-import boto3
-from botocore.config import Config
-import base64
-import time
 import os
 import json
-import string
-import random
-import re
 from PIL import Image
-import io
 import sys
 import concurrent.futures
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -19,362 +11,34 @@ from config import (
     SYSTEM_CANVAS,
     MODEL_OPTIONS,
     DEFAULT_BUCKET,
-    DEFAULT_GUIDELINE
+    DEFAULT_GUIDELINE,
+    GENERATED_VIDEOS_DIR,
+    CANVAS_SIZE)
+from shot_video import (
+    ReelGenerator,
+    generate_shots,
+    generate_shot_image,
+    generate_reel_prompts,
+    generate_shot_vidoes,
+    sistch_vidoes,
+    extract_last_frame
+)
+from utils import (
+    random_string_name,
+    load_guideline,
+    parse_prompt,
+    process_image
+)
+from generation import (
+    optimize_prompt,
+    optimize_canvas_prompt,
+    generate_image_pair,
+    generate_single_image,
+    generate_video,
+    generate_comparison_videos
 )
 
-# Initialize AWS clients
-session = boto3.session.Session(region_name='us-east-1')
-client = session.client(service_name='bedrock-runtime', 
-                       config=Config(connect_timeout=1000, read_timeout=1000))
-bedrock_runtime = session.client("bedrock-runtime")
 
-# Constants
-GENERATED_VIDEOS_DIR = "generated_videos"
-TARGET_WIDTH = 1280
-TARGET_HEIGHT = 720
-MAX_PROMPT_LENGTH = 512
-
-def random_string_name(length=12):
-        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
-
-def load_system_prompts(guideline_path):
-    with open(guideline_path, "rb") as file:
-        doc_bytes = file.read()
-    return doc_bytes
-
-def parse_prompt(text: str, pattern: str = r"<prompt>(.*?)</prompt>") -> str:
-    match = re.search(pattern, text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    raise ValueError(f"No match found for pattern: {pattern}")
-
-def process_image(image):
-    if image is None:
-        return None
-    
-    # Convert to RGB if needed
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    
-    # Get current dimensions
-    width, height = image.size
-    
-    # Calculate scaling factor to ensure the smaller dimension is at least as large as target
-    scale_w = TARGET_WIDTH / width
-    scale_h = TARGET_HEIGHT / height
-    scale = max(scale_w, scale_h)
-    
-    # Scale image proportionally
-    new_width = int(width * scale)
-    new_height = int(height * scale)
-    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    
-    # Crop from center to target dimensions
-    left = (new_width - TARGET_WIDTH) // 2
-    top = (new_height - TARGET_HEIGHT) // 2
-    right = left + TARGET_WIDTH
-    bottom = top + TARGET_HEIGHT
-    
-    image = image.crop((left, top, right, bottom))
-    return image
-
-def optimize_prompt(prompt, guideline_path, model_name, image=None):
-    if image is not None:
-        image = process_image(image)
-    
-    doc_bytes = load_system_prompts(guideline_path)
-    model_id = MODEL_OPTIONS[model_name]
-    
-    if image is None:
-        # Text-only prompt optimization
-        system = [{"text": SYSTEM_TEXT_ONLY}]
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "document": {
-                            "format": "pdf",
-                            "name": "DocumentPDFmessages",
-                            "source": {"bytes": doc_bytes}
-                        }
-                    },
-                    {"text": f"Please optimize: {prompt}"},
-                ],
-            }
-        ]
-    else:
-        # Image + text prompt optimization
-        system = [{"text": SYSTEM_IMAGE_TEXT}]
-        
-        # Convert image to bytes
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_bytes = img_byte_arr.getvalue()
-        
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "document": {
-                            "format": "pdf",
-                            "name": "DocumentPDFmessages",
-                            "source": {"bytes": doc_bytes}
-                        }
-                    },
-                    {"image": {"format": "png", "source": {"bytes": img_bytes}}},
-                    {"text": f"Please optimize: {prompt}"},
-                ],
-            }
-        ]
-
-    # Configure inference parameters
-    inf_params = {"maxTokens": 512, "topP": 0.9, "temperature": 0.8}
-    
-    # Get response
-    response = client.converse_stream(
-        modelId=model_id,
-        messages=messages,
-        system=system,
-        inferenceConfig=inf_params
-    )
-    
-    # Collect response text
-    text = ""
-    stream = response.get("stream")
-    if stream:
-        for event in stream:
-            if "contentBlockDelta" in event:
-                text += event["contentBlockDelta"]["delta"]["text"]
-    
-    optimized = parse_prompt(text)
-    length = len(optimized)
-    return optimized, f"{length} chars" + (" (Too Long!)" if length > MAX_PROMPT_LENGTH else "")
-
-def optimize_canvas_prompt(prompt, model_name):
-    """Optimize prompt for image generation using Canvas model"""
-    system = [{"text": SYSTEM_CANVAS}]
-    messages = [
-        {
-            "role": "user",
-            "content": [{"text": f"Please optimize: {prompt}"}],
-        }
-    ]
-    
-    # Configure inference parameters
-    inf_params = {"maxTokens": 512, "topP": 0.9, "temperature": 0.8}
-    
-    # Get response
-    response = client.converse_stream(
-        modelId=MODEL_OPTIONS[model_name],
-        messages=messages,
-        system=system,
-        inferenceConfig=inf_params
-    )
-    
-    # Collect response text
-    text = ""
-    stream = response.get("stream")
-    if stream:
-        for event in stream:
-            if "contentBlockDelta" in event:
-                text += event["contentBlockDelta"]["delta"]["text"]
-    
-    # Extract both prompt and negative prompt
-    prompt = parse_prompt(text, r"<prompt>(.*?)</prompt>")
-    try:
-        negative_prompt = parse_prompt(text, r"<negative_prompt>(.*?)</negative_prompt>")
-    except ValueError:
-        negative_prompt = ""
-    
-    return prompt, negative_prompt
-
-def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
-    """Generate images in parallel for both original and optimized prompts"""
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit both image generation tasks
-        future_original = executor.submit(
-            generate_single_image,
-            original_prompt,
-            negative_prompt,
-            quality,
-            num_images,
-            height,
-            width,
-            seed,
-            cfg_scale
-        )
-        future_optimized = executor.submit(
-            generate_single_image,
-            optimized_prompt,
-            negative_prompt,
-            quality,
-            num_images,
-            height,
-            width,
-            seed,
-            cfg_scale
-        )
-        
-        # Wait for both tasks to complete
-        original_images = future_original.result()
-        optimized_images = future_optimized.result()
-        
-        # Combine results
-        all_images = []
-        if original_images:
-            all_images.extend(original_images)
-        if optimized_images:
-            all_images.extend(optimized_images)
-            
-        return all_images
-
-def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
-    """Generate image using Nova Canvas model"""
-    body = json.dumps({
-        "taskType": "TEXT_IMAGE",
-        "textToImageParams": {
-            "text": prompt,
-            "negativeText": negative_prompt
-        } if negative_prompt else {
-             "text": prompt
-        },
-        "imageGenerationConfig": {
-            "numberOfImages": int(num_images),  # Ensure integer
-            "height": int(height),
-            "width": int(width),
-            "cfgScale": float(cfg_scale),
-            "seed":  random.randint(0,858993459) if int(seed) == -1 else int(seed),
-            "quality": quality
-        }
-    })
-    
-    try:
-        response = bedrock_runtime.invoke_model(
-            body=body,
-            modelId='amazon.nova-canvas-v1:0',
-            accept="application/json",
-            contentType="application/json"
-        )
-        
-        response_body = json.loads(response.get("body").read())
-        
-        # Create temporary directory for saving images
-        local_dir = './generated_images'
-        os.makedirs(local_dir, exist_ok=True)
-        image_paths = []
-        
-        # Save each image to a temporary file and collect paths
-        for i, base64_image in enumerate(response_body.get("images", [])):
-            image_bytes = base64.b64decode(base64_image)
-            image = Image.open(io.BytesIO(image_bytes))
-            rand_name = random_string_name()
-            path = f"{local_dir}/generated_{rand_name}.png"
-            image.save(path)
-            image_paths.append(path)
-        
-        return image_paths if image_paths else None
-        
-    except Exception as e:
-        print(f"Error generating image: {str(e)}")
-        return None
-
-def generate_video(prompt, bucket, image=None, seed=0):
-    if image is not None:
-        image = process_image(image)
-    
-    # Prepare model input
-    model_input = {
-        "taskType": "TEXT_VIDEO",
-        "textToVideoParams": {
-            "text": prompt,
-        },
-        "videoGenerationConfig": {
-            "durationSeconds": 6,
-            "fps": 24,
-            "dimension": "1280x720",
-            "seed": random.randint(0,858993459) if int(seed) == -1 else int(seed),
-        },
-    }
-    
-    # Add image if provided
-    if image is not None:
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_bytes = img_byte_arr.getvalue()
-        img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-        
-        model_input['textToVideoParams']['images'] = [{
-            "format": "png",
-            "source": {
-                "bytes": img_base64
-            }
-        }]
-    
-    # Start async video generation
-    invocation = bedrock_runtime.start_async_invoke(
-        modelId="amazon.nova-reel-v1:0",
-        modelInput=model_input,
-        outputDataConfig={
-            "s3OutputDataConfig": {
-                "s3Uri": bucket
-            }
-        }
-    )
-    
-    # Wait for completion
-    while True:
-        response = bedrock_runtime.get_async_invoke(
-            invocationArn=invocation['invocationArn']
-        )
-        status = response["status"]
-        if status != 'InProgress':
-            break
-        time.sleep(10)
-    
-    # Download video
-    output_uri = f"{response['outputDataConfig']['s3OutputDataConfig']['s3Uri']}/output.mp4"
-    local_path = download_video(output_uri)
-    
-    return local_path
-
-def generate_comparison_videos(original_prompt, optimized_prompt, bucket, image=None, seed=0):
-    # Create a thread pool executor
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-        # Submit both video generation tasks
-        future_original = executor.submit(generate_video, original_prompt, bucket, image, seed)
-        future_optimized = executor.submit(generate_video, optimized_prompt, bucket, image, seed)
-        
-        # Wait for both tasks to complete
-        original_video = future_original.result()
-        optimized_video = future_optimized.result()
-    
-    return original_video, optimized_video
-
-def download_video(s3_uri):
-    """Download video from S3 to local storage"""
-    try:
-        s3_client = boto3.client('s3')
-        
-        if not s3_uri.startswith('s3://'):
-            raise ValueError("Invalid S3 URI format")
-        
-        path_parts = s3_uri[5:].split('/', 1)
-        bucket_name = path_parts[0]
-        s3_key = path_parts[1]
-        
-        os.makedirs(GENERATED_VIDEOS_DIR, exist_ok=True)
-        
-        filename = f"{s3_key.split('/')[0]}.mp4"
-        local_path = os.path.join(GENERATED_VIDEOS_DIR, filename)
-        
-        s3_client.download_file(bucket_name, s3_key, local_path)
-        return local_path
-        
-    except Exception as e:
-        print(f"Error downloading video: {str(e)}")
-        return None
 def create_interface():
     with gr.Blocks() as demo:
         gr.Markdown("# Nova Reel & Canvas Prompt Optimizer")
@@ -409,37 +73,7 @@ def create_interface():
                             info="Number of images to generate (1-5)"
                         )
                         canvas_size = gr.Dropdown(
-                            choices=[
-                                "1024 x 1024 (1:1)",
-                                "2048 x 2048 (1:1)",
-                                "1024 x 336 (3:1)",
-                                "1024 x 512 (2:1)",
-                                "1024 x 576 (16:9)",
-                                "1024 x 627 (3:2)",
-                                "1024 x 816 (5:4)",
-                                "1280 x 720 (16:9)",
-                                "2048 x 512 (4:1)",
-                                "2288 x 1824 (5:4)",
-                                "2512 x 1664 (3:2)",
-                                "2720 x 1520 (16:9)",
-                                "2896 x 1440 (2:1)",
-                                "3536 x 1168 (3:1)",
-                                "4096 x 1024 (4:1)",
-                                "336 x 1024 (1:3)",
-                                "512 x 1024 (1:2)",
-                                "512 x 2048 (1:4)",
-                                "576 x 1024 (9:16)",
-                                "672 x 1024 (2:3)",
-                                "720 x 1280 (9:16)",
-                                "816 x 1024 (4:5)",
-                                "1024 x 4096 (1:4)",
-                                "1168 x 3536 (1:3)",
-                                "1440 x 2896 (1:2)",
-                                "1520 x 2720 (9:16)",
-                                "1664 x 2512 (2:3)",
-                                "1824 x 2288 (4:5)"
-
-                            ],
+                            choices=CANVAS_SIZE,
                             value="1280 x 720 (16:9)",
                             label="Size (px) / Aspect ratio",
                             info="Select image dimensions"
@@ -467,8 +101,8 @@ def create_interface():
                     with gr.Column():
                         canvas_optimized_prompt = gr.Textbox(label="Optimized Prompt")
                         canvas_negative_prompt = gr.Textbox(label="Negative Prompt")
-                        canvas_optimize_btn = gr.Button("Optimize Prompt")
-                        canvas_generate_btn = gr.Button("Generate Image")
+                        canvas_optimize_btn = gr.Button("Optimize Prompt",variant='primary')
+                        canvas_generate_btn = gr.Button("Generate Image",variant='primary')
                 
                 gr.Markdown("## Generated Images")
                 gr.Markdown("*Click on an image to select it for video generation*")
@@ -497,7 +131,7 @@ def create_interface():
                         )
                 with gr.Row():
                     selected_image_indicator = gr.Markdown("No image selected")
-                    send_to_video_btn = gr.Button("Send Selected Image to Video Generation", interactive=False)
+                    send_to_video_btn = gr.Button("Send Selected Image to Video Generation", interactive=False,variant='primary')
 
             # Video Generation Tab
             with gr.Tab("Video Generation", id="video_generation"):
@@ -538,8 +172,8 @@ def create_interface():
                             label="Optimized Prompt",
                             info="Length: 0 chars"
                         )
-                        optimize_btn = gr.Button("Optimize Prompt")
-                        generate_comparison_btn = gr.Button("Generate Videos")
+                        optimize_btn = gr.Button("Optimize Prompt",variant='primary')
+                        generate_comparison_btn = gr.Button("Generate Videos",variant='primary')
                 
                 gr.Markdown("## Video Comparison")
                 with gr.Row():
@@ -549,6 +183,88 @@ def create_interface():
                     with gr.Column():
                         gr.Markdown("### Optimized Prompt Video")
                         optimized_video = gr.Video(label="Optimized")
+
+            # Shot Video Generation Tab
+            with gr.Tab("Long Video Generation", id="shot_video"):
+                with gr.Row():
+                    with gr.Column():
+                        story_input = gr.Textbox(
+                            label="Enter your story",
+                            lines=5,
+                            placeholder="Enter a story to be converted into a long video with multiple scens"
+                        )
+                        shot_type_input = gr.Radio(
+                            choices=["Breakdown Shot", "Continuous Shot"],
+                            value="Breakdown Shot",
+                            label="Shot Type",
+                            info="Select shot type,(Continuous Shot need to run seqentially, it is much slower"
+                        )
+                        shot_model_input = gr.Dropdown(
+                            choices=list(MODEL_OPTIONS.keys()),
+                            value="Nova Pro",
+                            label="Model",
+                            info="Select the model for shot generation"
+                        )
+                        shot_bucket_input = gr.Textbox(
+                            label="S3 Bucket",
+                            value=DEFAULT_BUCKET,
+                            info="S3 bucket for video output"
+                        )
+                        num_shot_input = gr.Number(
+                            value=3,
+                            minimum=2,
+                            maximum=10,
+                            step=1,
+                            label="Number of Shots (Scens)",
+                            info="Number of shots to generate (2-10)"
+                        )
+                        video_seed = gr.Number(
+                            value=0,
+                            minimum=-1,
+                            label="Seed",
+                            info="Random seed (-1 for random)"
+                        )
+                        shot_cfg_scale_input = gr.Slider(
+                            value=6.5,
+                            minimum=1.0,
+                            maximum=20.0,
+                            step=0.5,
+                            label="CFG Scale",
+                            info="How closely to follow the prompt"
+                        )
+                        similarity_strength_input = gr.Slider(
+                            value=0.7,
+                            minimum=0.2,
+                            maximum=1.0,
+                            step=0.1,
+                            label="Similarity Strength",
+                            info="How closely between shot image"
+                        )
+                    
+                    with gr.Column():
+                        shots_json = gr.JSON(label="Generated Shots")
+                        generate_shots_btn = gr.Button("Generate Shots",variant='primary')
+                        status_text = gr.Markdown("Status: Ready")
+                        generate_shot_video_btn = gr.Button("Generate Shot Videos", interactive=False,variant='primary')
+                
+                gr.Markdown("## Generated Shot Images")
+                shot_images = gr.Gallery(
+                    label="Generated Images",
+                    show_label=True,
+                    elem_id="shot_images",
+                    columns=[3],
+                    rows=[1],
+                    height="auto",
+                    allow_preview=True
+                )
+                
+                gr.Markdown("## Generated Reel Prompts")
+                reel_prompts_json = gr.JSON(label="Reel Prompts")
+                
+                gr.Markdown("## Generated Long Videos")
+                with gr.Row():
+                    shot_video = gr.Video(label="Video")
+                    captioned_video = gr.Video(label="Captioned Video")
 
         # Video tab event handlers
         def update_optimized_prompt(prompt, guideline_path, model_name, image):
@@ -667,6 +383,110 @@ def create_interface():
             except Exception as e:
                 print(f"Error loading image: {str(e)}")
                 return [None, None, gr.update(value="Error loading image"), gr.update(interactive=True), gr.update(selected="video_generation")]
+
+        # Shot video tab event handlers
+        def update_shots(story, model_name,num_shot,shot_type):
+            reel_gen = ReelGenerator(model_id=MODEL_OPTIONS[model_name])
+            if shot_type == 'Breakdown Shot':
+                shots = generate_shots(reel_gen, story,num_shot,False)
+            elif shot_type == 'Continuous Shot':
+                shots = generate_shots(reel_gen, story, num_shot,True)
+            return shots, gr.update(interactive=True)
+        
+        def generate_shot_videos(story, shots, bucket, model_name, seed, cfg_scale, similarity_strength,shot_type):
+            if not shots or 'shots' not in shots:
+                return None, None, None, None, "Error: No shots data"
+                
+            reel_gen = ReelGenerator(bucket_name=bucket,model_id=MODEL_OPTIONS[model_name])
+            
+            try:
+                # Generate images for each shot
+                status = gr.update(value="Status: Generating images...")
+                yield None, None, None, None, status
+
+                if shot_type == 'Breakdown Shot':
+                    image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength)
+                    yield None, None, image_files, None, gr.update(value="Status: Images generated successfully")
+                    
+                    # Generate optimized prompts for each shot
+                    status = gr.update(value="Status: Generating prompts...")
+                    yield None, None, image_files, None, status
+                    
+                    reel_prompts = generate_reel_prompts(reel_gen, shots, image_files)
+                    yield None, None, image_files, reel_prompts, gr.update(value="Status: Prompts generated successfully")
+                    
+                    # Generate videos for each shot
+                    status = gr.update(value="Status: Generating videos...")
+                    yield None, None, image_files, reel_prompts, status
+                    
+                    video_files = generate_shot_vidoes(reel_gen, image_files, reel_prompts)
+                    
+                    # Stitch videos together and add captions
+                    status = gr.update(value="Status: Stitching videos...")
+                    yield None, None, image_files, reel_prompts, status
+                    
+                    final_video, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    yield final_video, captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
+
+                elif shot_type == 'Continuous Shot':
+                    # 只生成第一张图片
+                    image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength, True)
+                    yield None, None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
+
+                    # Generate optimized prompts for each shot
+                    status = gr.update(value="Status: Generating videos...")
+                    yield None, None, image_files, None, status
+
+                    ref_image_files = [image_files[0]]
+                    save_path_folder = os.path.split(image_files[0])[0]
+                    video_files = []
+                    reel_prompts = []
+                    for idx, shot in enumerate(shots['shots']):
+                        _reel_prompts = generate_reel_prompts(reel_gen, {"shots":[shot]}, ref_image_files)
+                        _video_files = generate_shot_vidoes(reel_gen, ref_image_files, _reel_prompts)
+                        video_files += _video_files
+                        last_frame_image = os.path.join(save_path_folder,f"last_frame_{idx}.png")
+                        # print(f"extracting last_frame_image: {last_frame_image}")
+
+                        # extract last frame
+                        if idx < len(shots['shots'])-1:
+                            extract_last_frame(_video_files[0],last_frame_image)
+                            print(f"saved last_frame_image: {last_frame_image}")
+
+                            # update the ref image as last frame
+                            ref_image_files = [last_frame_image]
+                            image_files.append(last_frame_image)
+                            reel_prompts += _reel_prompts
+                            status = gr.update(value=f"Status: Generated video segment {idx+1}")
+                            yield None, None, image_files, reel_prompts, status
+
+                    # Stitch videos together and add captions
+                    status = gr.update(value="Status: Stitching videos...")
+                    yield _video_files[0], None, image_files, reel_prompts, status
+                    
+                    final_video, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    yield final_video, captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
+
+
+
+
+
+                
+            except Exception as e:
+                yield None, None, None, None, gr.update(value=f"Error: {str(e)}")
+
+        # Connect shot video tab event handlers
+        generate_shots_btn.click(
+            fn=update_shots,
+            inputs=[story_input, shot_model_input,num_shot_input,shot_type_input],
+            outputs=[shots_json, generate_shot_video_btn]
+        )
+        
+        generate_shot_video_btn.click(
+            fn=generate_shot_videos,
+            inputs=[story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input,shot_type_input],
+            outputs=[shot_video, captioned_video, shot_images, reel_prompts_json, status_text]
+        )
 
         # Add event handlers for image selection and transfer
         original_images.select(

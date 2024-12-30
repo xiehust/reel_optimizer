@@ -6,6 +6,7 @@ __pycache__/
 .gradio/
 generated_images/
 generated_videos/
+shot_images/
 # C extensions
 *.so
 

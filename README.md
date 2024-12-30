@@ -3,6 +3,18 @@
 A Gradio web interface for optimizing prompts and generating videos using Amazon's Nova [Canvas and Reel model](https://docs.aws.amazon.com/nova/latest/userguide/content-generation.html).
 
 ## Update Logs
+### 12/30/2024
+- Add Long Video Generation. 
+Expand a input from user, generate storyboard, create breakdown shots, generate a long video.
+* 1. ```Prompt:我心目中的AWS像一柄利剑，帮我在数字化转型的道路上披荆斩棘。``` [video demo1 file](assets/aws_stitched_1_caption.mp4)
+- ![video demo1 file](assets/video_demo.gif)
+
+* 2. ```Prompt:wonderful under sea world``` [video demo2 file](assets/4p6jvyq58l7q_stitched_1_caption.mp4) 
+- ![video demo2 file](assets/video_demo2.gif)
+
+
+example:
+
 ### 12/23/2024
 - Add seed, cfg scale, Aspect ratio
 - Add option to enable/disable comparison mode 
@@ -65,6 +77,14 @@ python app.py
    - You can compare the videos between original and optimized version
 ![alt text](assets/image5.png)
 
+5. Long video generation
+   - Enter your prompt in the story box
+   - Click "Generate Shots" to create storyboard.
+   - Click "Generate Video" to generate a long video.   
+    It first creates images by scens, generate videos from every image of the scen, then concate the short videos to a long video, add caption to the video
+   ![alt text](assets/image7.png)
+   ![alt text](assets/image8.png)
+s
 ## Notes
 
 - The application uses Amazon Nova to optimize prompts for better video generation results
