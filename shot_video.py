@@ -15,9 +15,11 @@ from botocore.config import Config
 from moviepy import VideoFileClip, CompositeVideoClip, TextClip
 from json import JSONDecodeError
 import sys
+import cv2
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from config import SHOT_SYSTEM,SYSTEM_TEXT_ONLY,SYSTEM_IMAGE_TEXT,DEFAULT_GUIDELINE,LITE_MODEL_ID
+from config import SHOT_SYSTEM,SYSTEM_TEXT_ONLY,SYSTEM_IMAGE_TEXT,DEFAULT_GUIDELINE,LITE_MODEL_ID,CONTINUOUS_SHOT_SYSTEM
 from utils import random_string_name
+from generation import optimize_canvas_prompt
 
 
 
@@ -53,11 +55,21 @@ class ReelGenerator:
 
     def generate_shots(self, story: str, system_prompt: str) -> dict:
         """Generate shot descriptions from a story."""
+        with open(DEFAULT_GUIDELINE, "rb") as file:
+            doc_bytes = file.read()
         system = [{"text": system_prompt}]
         messages = [
             {
                 "role": "user",
-                "content": [{"text": story}],
+                "content": [
+                     {
+                        "document": {
+                            "format": "pdf",
+                            "name": "DocumentPDFmessages",
+                            "source": {"bytes": doc_bytes}
+                        }
+                    },
+                    {"text": f"Please generate shots for User input:{story}"}],
             },
             {
                 "role": "assistant",
@@ -104,7 +116,7 @@ class ReelGenerator:
 
         return image_bytes_list
 
-    def generate_variations(self,reference_image_paths,prompt,negative_prompt,save_filepath,seed=0):
+    def generate_variations(self,reference_image_paths,prompt,negative_prompt,save_filepath,seed:int = 0,cfg_scale:float = 6.5,similarity_strength:float = 0.8):
         # Load all reference images as base64.
         images = []
         for path in reference_image_paths:
@@ -117,14 +129,14 @@ class ReelGenerator:
             "imageVariationParams": {
                 "images": images, # Images to use as reference
                 "text": prompt, 
-                "similarityStrength": 0.8,  # Range: 0.2 to 1.0
+                "similarityStrength": similarity_strength,  # Range: 0.2 to 1.0
             },
             "imageGenerationConfig": {
                 "numberOfImages": 1,  # Number of variations to generate. 1 to 5.
                 "quality": "standard",  # Allowed values are "standard" and "premium"
                 "width": 1280,  # See README for supported output resolutions
                 "height": 720,  # See README for supported output resolutions
-                "cfgScale": 4.0,  # How closely the prompt will be followed
+                "cfgScale": cfg_scale,  # How closely the prompt will be followed
                 "seed": random.randint(0,858993459) if int(seed) == -1 else int(seed)
             },
         }
@@ -141,7 +153,7 @@ class ReelGenerator:
         except Exception as err:
             raise ValueError(f"generate_variations:{str(err)}")
 
-    def generate_text2img(self, prompt: str, negative_prompt: str, save_filepath: str,seed:int =0) -> str:
+    def generate_text2img(self, prompt: str, negative_prompt: str, save_filepath: str,seed:int =0,cfg_scale:float = 6.5) -> str:
         """Generate image from text prompt."""
         inference_params = {
             "taskType": "TEXT_IMAGE",
@@ -152,7 +164,7 @@ class ReelGenerator:
                 "numberOfImages": 1,
                 "height": 720,
                 "width": 1280,
-                "cfgScale": 6.5,
+                "cfgScale": cfg_scale,
                 "seed": random.randint(0,858993459) if int(seed) == -1 else int(seed)
             }
         }
@@ -164,6 +176,7 @@ class ReelGenerator:
             for image_bytes in image_bytes_list:
                 image = Image.open(BytesIO(image_bytes))
                 image.save(save_filepath)
+                print(f"image saved to {save_filepath}")
             return save_filepath
         except Exception as err:
             raise ValueError(f"generate_text2img:{str(err)}")
@@ -187,7 +200,7 @@ class ReelGenerator:
                         }
                     },
                     {"image": {"format": mime_type.split('/')[1], "source": {"bytes": image}}},
-                    {"text": user_prompt},
+                    {"text": f"Please generate shots for User input:{user_prompt}"},
                 ],
             }
         ]
@@ -333,12 +346,13 @@ class ReelGenerator:
 
 
 
-def generate_shots(reel_gen:ReelGenerator,story:str,num_shot:int=3):
+def generate_shots(reel_gen:ReelGenerator,story:str,num_shot:int=3,is_continues_shot = False):
     # Generate shots
-    shots = reel_gen.generate_shots(story, SHOT_SYSTEM.replace("<num_shot>",str(num_shot)))
+    system = CONTINUOUS_SHOT_SYSTEM if is_continues_shot else SHOT_SYSTEM
+    shots = reel_gen.generate_shots(story, system.replace("<num_shot>",str(num_shot)))
     return shots
 
-def generate_shot_image(reel_gen:ReelGenerator,shots:dict,seed:int=0):
+def generate_shot_image(reel_gen:ReelGenerator,shots:dict,seed:int=0,cfg_scale:float = 6.5, similarity_strength:float = 0.8, is_continues_shot = False):
     # Create directories for outputs
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     output_dir = os.path.join('shot_images', timestamp)
@@ -348,20 +362,24 @@ def generate_shot_image(reel_gen:ReelGenerator,shots:dict,seed:int=0):
     image_files = []
     prompts = []
     for idx, shot in enumerate(shots['shots']):
-        prompt = f"{shot['prompt']} {shot['composition']} angle:{shot['angle']} {shot['distance']} {shot['lighting']} {' '.join(shot['style_tags'])}"
+        # optimize prompt for canvas
+        prompt,negative_prompt = optimize_canvas_prompt(shot['caption'])
         save_path = os.path.join(output_dir, f'shot_{idx}.png')
         
         if not image_files:  # First image
-            ret = reel_gen.generate_text2img(prompt, shot['negative_prompt'], save_path,seed)
+            ret = reel_gen.generate_text2img(prompt,negative_prompt, save_path,seed,cfg_scale)
         else:
-            ret = reel_gen.generate_variations(image_files,prompt,shot['negative_prompt'],save_path,seed)
+            ret = reel_gen.generate_variations(image_files,prompt,negative_prompt,save_path,seed,cfg_scale,similarity_strength)
         if ret:
             image_files.append(save_path)
             prompts.append(prompt)
-        # time.sleep(10)  # Rate limiting
+
+        if is_continues_shot: #continues_shot only generates the first image
+            break
+        time.sleep(10)  # Rate limiting
     return image_files
 
-def generate_reel_prompts(reel_gen:ReelGenerator, shots:dict,image_files:list):
+def generate_reel_prompts(reel_gen:ReelGenerator, shots:dict,image_files:list, skip:bool = True):
     # Read PDF document for prompt optimization
     with open(DEFAULT_GUIDELINE, "rb") as file:
         doc_bytes = file.read()
@@ -369,13 +387,18 @@ def generate_reel_prompts(reel_gen:ReelGenerator, shots:dict,image_files:list):
     # Optimize prompts for video generation
     reel_prompts = []
     for shot, ref_img in zip(shots['shots'], image_files):
-        optimized_prompt = reel_gen.optimize_reel_prompt(
-            system_prompt=SYSTEM_IMAGE_TEXT,
-            user_prompt=shot['description'],
-            ref_image=ref_img,
-            doc_bytes=doc_bytes
-        )
-        reel_prompts.append(optimized_prompt)
+        if skip:
+            user_prompt = f"{shot['prompt']} {shot['cinematography']}"
+            reel_prompts.append(user_prompt)
+        else:
+            optimized_prompt = reel_gen.optimize_reel_prompt(
+                system_prompt=SYSTEM_IMAGE_TEXT,
+                user_prompt=f"{shot['caption']} {shot['cinematography']}",
+                ref_image=ref_img,
+                doc_bytes=doc_bytes
+            )
+            reel_prompts.append(optimized_prompt)
+        
     return reel_prompts
 
 def generate_shot_vidoes(reel_gen:ReelGenerator,image_files:list,reel_prompts:list):        
@@ -416,7 +439,7 @@ def sistch_vidoes(reel_gen:ReelGenerator,video_files:list,shots:dict):
         duration = 6  # Duration per shot
         captions = []
         for idx, shot in enumerate(shots['shots']):
-            desc_arr = reel_gen._split_caption(shot['description'])
+            desc_arr = reel_gen._split_caption(shot['caption'])
             for idy, sub_desc in enumerate(desc_arr):
                 if sub_desc:  # Only add non-empty captions
                     start_time = idx * duration + (idy * duration / len(desc_arr))
@@ -427,3 +450,39 @@ def sistch_vidoes(reel_gen:ReelGenerator,video_files:list,shots:dict):
         reel_gen.add_timed_captions(final_video, caption_video_file, captions)
         print(f"Final video with captions saved to: {caption_video_file}")
     return final_video,caption_video_file
+
+def extract_last_frame(video_path: str, output_path: str):
+    """
+    Extracts the last frame of a video file.
+
+    Args:
+        video_path (str): The local path to the video to extract the last frame from.
+        output_path (str): The local path to save the extracted frame to.
+    """
+    # Open the video file
+    cap = cv2.VideoCapture(video_path)
+
+    # Check if the video file is opened successfully
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
+
+    # Get the total number of frames in the video
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Move to the last frame
+    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+
+    # Read the last frame
+    ret, frame = cap.read()
+
+    # Check if the frame is read successfully
+    if ret:
+        # Save the last frame as an image
+        cv2.imwrite(output_path, frame)
+        # print(f"Last frame saved as {output_path}")
+    else:
+        print("Error: Could not read the last frame.")
+
+    # Release the video capture object
+    cap.release()

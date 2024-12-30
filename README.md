@@ -3,6 +3,15 @@
 A Gradio web interface for optimizing prompts and generating videos using Amazon's Nova [Canvas and Reel model](https://docs.aws.amazon.com/nova/latest/userguide/content-generation.html).
 
 ## Update Logs
+### 12/30/2024
+- Add Long Video Generation. 
+Expand a input from user, generate storyboard, create breakdown shots, generate a long video.
+[video demo file](assets/aws_stitched_1_caption.mp4)
+![video demo file](assets/video_demo.gif)
+![alt text](assets/image7.png)
+![alt text](assets/image8.png)
+example:
+
 ### 12/23/2024
 - Add seed, cfg scale, Aspect ratio
 - Add option to enable/disable comparison mode 
