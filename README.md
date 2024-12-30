@@ -4,8 +4,8 @@ A Gradio web interface for optimizing prompts and generating videos using Amazon
 
 ## Update Logs
 ### 12/30/2024
-- Add Long Video Generation. 
-Expand a input from user, generate storyboard, create breakdown shots, generate a long video.
+- Add Long Video Generation.  
+Expand an input from the user, generate a storyboard, create breakdown shots, and generate a long video
 * 1. ```Prompt:我心目中的AWS像一柄利剑，帮我在数字化转型的道路上披荆斩棘。``` [video demo1 file](assets/aws_stitched_1_caption.mp4)
 - ![video demo1 file](assets/video_demo.gif)
 
