@@ -25,7 +25,8 @@ from utils import (
     random_string_name,
     load_guideline,
     parse_prompt,
-    process_image
+    process_image,
+    download_video
 )
 
 # Initialize AWS clients
@@ -239,6 +240,10 @@ def generate_single_image(prompt, negative_prompt="", quality="standard", num_im
         
     except Exception as e:
         print(f"Error generating image: {str(e)}")
+        return None
+        
+    except Exception as e:
+        print(f"Error downloading video: {str(e)}")
         return None
 
 def generate_video(prompt, bucket, image=None, seed=0):
