@@ -23,12 +23,7 @@ from shot_video import (
     sistch_vidoes,
     extract_last_frame
 )
-from utils import (
-    random_string_name,
-    load_guideline,
-    parse_prompt,
-    process_image
-)
+from utils import *
 from generation import (
     optimize_prompt,
     optimize_canvas_prompt,
@@ -263,8 +258,15 @@ def create_interface():
                 
                 gr.Markdown("## Generated Long Videos")
                 with gr.Row():
-                    shot_video = gr.Video(label="Video")
+                    # shot_video = gr.Video(label="Video")
                     captioned_video = gr.Video(label="Captioned Video")
+                        # 二维码相关组件
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        generate_qr_btn = gr.Button("Generate QR code for Video")
+                        generate_image_qr_btn = gr.Button("Generate QR code for selected Image") 
+                    with gr.Column(scale=2):
+                        qr_output = gr.Image(label="QR code for downloading",type="numpy")
 
         # Video tab event handlers
         def update_optimized_prompt(prompt, guideline_path, model_name, image):
@@ -393,49 +395,54 @@ def create_interface():
                 shots = generate_shots(reel_gen, story, num_shot,True)
             return shots, gr.update(interactive=True)
         
+        def on_select(gallery_output_images,evt: gr.SelectData):
+            selected_index = evt.index
+            selected_path = gallery_output_images[selected_index]
+            return selected_path[0]
+
         def generate_shot_videos(story, shots, bucket, model_name, seed, cfg_scale, similarity_strength,shot_type):
             if not shots or 'shots' not in shots:
-                return None, None, None, None, "Error: No shots data"
+                return  None, None, None, "Error: No shots data"
                 
             reel_gen = ReelGenerator(bucket_name=bucket,model_id=MODEL_OPTIONS[model_name])
             
             try:
                 # Generate images for each shot
                 status = gr.update(value="Status: Generating images...")
-                yield None, None, None, None, status
+                yield  None, None, None, status
 
                 if shot_type == 'Breakdown Shot':
                     image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength)
-                    yield None, None, image_files, None, gr.update(value="Status: Images generated successfully")
+                    yield  None, image_files, None, gr.update(value="Status: Images generated successfully")
                     
                     # Generate optimized prompts for each shot
                     status = gr.update(value="Status: Generating prompts...")
-                    yield None, None, image_files, None, status
+                    yield  None, image_files, None, status
                     
                     reel_prompts = generate_reel_prompts(reel_gen, shots, image_files)
-                    yield None, None, image_files, reel_prompts, gr.update(value="Status: Prompts generated successfully")
+                    yield  None, image_files, reel_prompts, gr.update(value="Status: Prompts generated successfully")
                     
                     # Generate videos for each shot
                     status = gr.update(value="Status: Generating videos...")
-                    yield None, None, image_files, reel_prompts, status
+                    yield  None, image_files, reel_prompts, status
                     
                     video_files = generate_shot_vidoes(reel_gen, image_files, reel_prompts)
                     
                     # Stitch videos together and add captions
                     status = gr.update(value="Status: Stitching videos...")
-                    yield None, None, image_files, reel_prompts, status
+                    yield  None, image_files, reel_prompts, status
                     
-                    final_video, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
-                    yield final_video, captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
+                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
 
                 elif shot_type == 'Continuous Shot':
                     # 只生成第一张图片
                     image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength, True)
-                    yield None, None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
+                    yield  None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
 
                     # Generate optimized prompts for each shot
                     status = gr.update(value="Status: Generating videos...")
-                    yield None, None, image_files, None, status
+                    yield  None, image_files, None, status
 
                     ref_image_files = [image_files[0]]
                     save_path_folder = os.path.split(image_files[0])[0]
@@ -458,14 +465,14 @@ def create_interface():
                             image_files.append(last_frame_image)
                             reel_prompts += _reel_prompts
                             status = gr.update(value=f"Status: Generated video segment {idx+1}")
-                            yield None, None, image_files, reel_prompts, status
+                            yield  None, image_files, reel_prompts, status
 
                     # Stitch videos together and add captions
                     status = gr.update(value="Status: Stitching videos...")
-                    yield _video_files[0], None, image_files, reel_prompts, status
+                    yield  None, image_files, reel_prompts, status
                     
-                    final_video, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
-                    yield final_video, captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
+                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
 
 
 
@@ -485,7 +492,7 @@ def create_interface():
         generate_shot_video_btn.click(
             fn=generate_shot_videos,
             inputs=[story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input,shot_type_input],
-            outputs=[shot_video, captioned_video, shot_images, reel_prompts_json, status_text]
+            outputs=[ captioned_video, shot_images, reel_prompts_json, status_text]
         )
 
         # Add event handlers for image selection and transfer
@@ -510,6 +517,25 @@ def create_interface():
                 send_to_video_btn,
                 tabs
             ]
+        )
+        generate_qr_btn.click(
+            fn=generate_qr_code,
+            inputs=[captioned_video,bucket_input],
+            outputs=[qr_output],
+            concurrency_limit=8
+        )
+        
+        generate_image_qr_btn.click(
+            fn=generate_image_qr_code,
+            inputs=[selected_image,bucket_input],  # 使用selected_image_file作为输入
+            outputs=[qr_output],
+            concurrency_limit=8
+        )
+
+        shot_images.select(
+            fn=on_select,
+            inputs=shot_images,
+            outputs=selected_image
         )
     
     return demo

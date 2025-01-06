@@ -14,6 +14,8 @@ Expand an input from the user, generate a storyboard, create breakdown shots, an
 
 
 example:
+### 1/6/2025
+- Add QR Code generation for long video. The viewers can download the artifacts in their phone
 
 ### 12/23/2024
 - Add seed, cfg scale, Aspect ratio

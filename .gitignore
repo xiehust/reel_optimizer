@@ -9,7 +9,7 @@ generated_videos/
 shot_images/
 # C extensions
 *.so
-
+reelvenv
 # Distribution / packaging
 .Python
 build/
