@@ -352,9 +352,9 @@ def generate_shots(reel_gen:ReelGenerator,story:str,num_shot:int=3,is_continues_
     shots = reel_gen.generate_shots(story, system.replace("<num_shot>",str(num_shot)))
     return shots
 
-def generate_shot_image(reel_gen:ReelGenerator,shots:dict,seed:int=0,cfg_scale:float = 6.5, similarity_strength:float = 0.8, is_continues_shot = False):
+def generate_shot_image(reel_gen:ReelGenerator,shots:dict,timestamp:str, seed:int=0,cfg_scale:float = 6.5, similarity_strength:float = 0.8, is_continues_shot = False):
     # Create directories for outputs
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    # timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     output_dir = os.path.join('shot_images', timestamp)
     os.makedirs(output_dir, exist_ok=True)
     
@@ -421,11 +421,11 @@ def generate_shot_vidoes(reel_gen:ReelGenerator,image_files:list,reel_prompts:li
             video_files.append(video_file)
     return video_files
 
-def sistch_vidoes(reel_gen:ReelGenerator,video_files:list,shots:dict):      
+def sistch_vidoes(reel_gen:ReelGenerator,video_files:list,shots:dict,timestamp:str):      
     # Stitch videos together
     final_video = None
     prefix = random_string_name()
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    # timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     os.makedirs(os.path.join('generated_videos',timestamp), exist_ok=True) 
     for idx in range(len(video_files) - 1):
         output_path = os.path.join('generated_videos',timestamp,f'{prefix}_stitched_{idx}.mp4')

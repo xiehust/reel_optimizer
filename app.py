@@ -3,6 +3,8 @@ import os
 import json
 from PIL import Image
 import sys
+import random
+from datetime import datetime
 import concurrent.futures
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
@@ -13,6 +15,7 @@ from config import (
     DEFAULT_BUCKET,
     DEFAULT_GUIDELINE,
     GENERATED_VIDEOS_DIR,
+    PROMPT_SAMPLES,
     CANVAS_SIZE)
 from shot_video import (
     ReelGenerator,
@@ -24,6 +27,7 @@ from shot_video import (
     extract_last_frame
 )
 from utils import *
+import json
 from generation import (
     optimize_prompt,
     optimize_canvas_prompt,
@@ -32,6 +36,12 @@ from generation import (
     generate_video,
     generate_comparison_videos
 )
+
+def update_prompt(template_name):
+    """
+    更新 prompt 输入框的内容
+    """
+    return PROMPT_SAMPLES.get(template_name, "")
 
 
 def create_interface():
@@ -188,6 +198,11 @@ def create_interface():
                             lines=5,
                             placeholder="Enter a story to be converted into a long video with multiple scens"
                         )
+                        # 模板下拉框
+                        template_dropdown = gr.Dropdown(
+                            choices=list(PROMPT_SAMPLES.keys()),
+                            label="Sample Prompts"
+                        )
                         shot_type_input = gr.Radio(
                             choices=["Breakdown Shot", "Continuous Shot"],
                             value="Breakdown Shot",
@@ -241,6 +256,7 @@ def create_interface():
                         generate_shots_btn = gr.Button("Generate Shots",variant='primary')
                         status_text = gr.Markdown("Status: Ready")
                         generate_shot_video_btn = gr.Button("Generate Shot Videos", interactive=False,variant='primary')
+                        timestamp = gr.Textbox(label="Timestamps", visible=False)
                 
                 gr.Markdown("## Generated Shot Images")
                 shot_images = gr.Gallery(
@@ -277,6 +293,13 @@ def create_interface():
             fn=update_optimized_prompt,
             inputs=[prompt_input, guideline_input, model_input, image_input],
             outputs=optimized_prompt
+        )
+
+        # 当选择模版时更新 prompt 输入框
+        template_dropdown.change(
+            fn=update_prompt,
+            inputs=template_dropdown,
+            outputs=story_input
         )
         
         def generate_videos_with_comparison(original_prompt, optimized_prompt, bucket, image, comparison_mode, seed):
@@ -388,19 +411,23 @@ def create_interface():
 
         # Shot video tab event handlers
         def update_shots(story, model_name,num_shot,shot_type):
+            timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")+'_'+str(random.randint(1000, 9999))
             reel_gen = ReelGenerator(model_id=MODEL_OPTIONS[model_name])
             if shot_type == 'Breakdown Shot':
                 shots = generate_shots(reel_gen, story,num_shot,False)
             elif shot_type == 'Continuous Shot':
                 shots = generate_shots(reel_gen, story, num_shot,True)
-            return shots, gr.update(interactive=True)
+            os.makedirs(os.path.join('shot_images',timestamp_str), exist_ok=True) 
+            with open(os.path.join('shot_images', timestamp_str, 'shots.json'), 'w') as f:
+                json.dump(shots, f,indent=4,ensure_ascii=False)
+            return shots, gr.update(interactive=True),timestamp_str
         
         def on_select(gallery_output_images,evt: gr.SelectData):
             selected_index = evt.index
             selected_path = gallery_output_images[selected_index]
             return selected_path[0]
 
-        def generate_shot_videos(story, shots, bucket, model_name, seed, cfg_scale, similarity_strength,shot_type):
+        def generate_shot_videos(story, shots, bucket, model_name, seed, cfg_scale, similarity_strength,shot_type,timestamp):
             if not shots or 'shots' not in shots:
                 return  None, None, None, "Error: No shots data"
                 
@@ -412,7 +439,7 @@ def create_interface():
                 yield  None, None, None, status
 
                 if shot_type == 'Breakdown Shot':
-                    image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength)
+                    image_files = generate_shot_image(reel_gen, shots,timestamp, seed, cfg_scale, similarity_strength)
                     yield  None, image_files, None, gr.update(value="Status: Images generated successfully")
                     
                     # Generate optimized prompts for each shot
@@ -432,12 +459,12 @@ def create_interface():
                     status = gr.update(value="Status: Stitching videos...")
                     yield  None, image_files, reel_prompts, status
                     
-                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots,timestamp)
                     yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
 
                 elif shot_type == 'Continuous Shot':
                     # 只生成第一张图片
-                    image_files = generate_shot_image(reel_gen, shots, seed, cfg_scale, similarity_strength, True)
+                    image_files = generate_shot_image(reel_gen, shots, timestamp,seed, cfg_scale, similarity_strength, True)
                     yield  None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
 
                     # Generate optimized prompts for each shot
@@ -471,7 +498,7 @@ def create_interface():
                     status = gr.update(value="Status: Stitching videos...")
                     yield  None, image_files, reel_prompts, status
                     
-                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots)
+                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots,timestamp)
                     yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
 
 
@@ -486,12 +513,12 @@ def create_interface():
         generate_shots_btn.click(
             fn=update_shots,
             inputs=[story_input, shot_model_input,num_shot_input,shot_type_input],
-            outputs=[shots_json, generate_shot_video_btn]
+            outputs=[shots_json, generate_shot_video_btn,timestamp]
         )
         
         generate_shot_video_btn.click(
             fn=generate_shot_videos,
-            inputs=[story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input,shot_type_input],
+            inputs=[story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input,shot_type_input,timestamp],
             outputs=[ captioned_video, shot_images, reel_prompts_json, status_text]
         )
 
