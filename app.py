@@ -5,6 +5,7 @@ from PIL import Image
 import sys
 import random
 from datetime import datetime
+from argparse import ArgumentParser
 import concurrent.futures
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
@@ -571,5 +572,9 @@ if __name__ == "__main__":
     # Create interface
     demo = create_interface()
     
+    parser = ArgumentParser()
+    parser.add_argument("--host", type=str, default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=7860)
+    args = parser.parse_args()
     # Launch the interface
-    demo.launch(share=True)
+    demo.launch(share=True, server_name=args.host, server_port=args.port)
