@@ -4,9 +4,13 @@ import json
 from PIL import Image
 import sys
 import random
+import threading
 from datetime import datetime
 from argparse import ArgumentParser
 import concurrent.futures
+import uuid
+import shutil
+from pathlib import Path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import (
     SYSTEM_TEXT_ONLY,
@@ -38,18 +42,42 @@ from generation import (
     generate_comparison_videos
 )
 
-def update_prompt(template_name):
-    """
-    更新 prompt 输入框的内容
-    """
-    return PROMPT_SAMPLES.get(template_name, "")
+# 全局锁,用于保护共享资源
+file_lock = threading.Lock()
 
+class UserSession:
+    def __init__(self):
+        self.session_id = str(uuid.uuid4())
+        self.work_dir = os.path.join('user_sessions', self.session_id)
+        self.setup_directories()
+        
+    def setup_directories(self):
+        """为用户会话创建必要的目录"""
+        os.makedirs(self.work_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.work_dir, 'generated_images'), exist_ok=True)
+        os.makedirs(os.path.join(self.work_dir, 'generated_videos'), exist_ok=True)
+        os.makedirs(os.path.join(self.work_dir, 'shot_images'), exist_ok=True)
+        
+    def get_path(self, *paths):
+        """获取用户会话特定的文件路径"""
+        return os.path.join(self.work_dir, *paths)
+        
+    def cleanup(self):
+        """清理用户会话数据"""
+        if os.path.exists(self.work_dir):
+            shutil.rmtree(self.work_dir)
+
+def update_prompt(template_name):
+    """更新 prompt 输入框的内容"""
+    return PROMPT_SAMPLES.get(template_name, "")
 
 def create_interface():
     with gr.Blocks() as demo:
         gr.Markdown("# Nova Reel & Canvas Prompt Optimizer")
         
-        # State for storing selected image
+        # 用户会话状态
+        session = gr.State(lambda: UserSession())
+        # 选中图片状态
         selected_image = gr.State(value=None)
         
         with gr.Tabs() as tabs:
@@ -199,7 +227,6 @@ def create_interface():
                             lines=5,
                             placeholder="Enter a story to be converted into a long video with multiple scens"
                         )
-                        # 模板下拉框
                         template_dropdown = gr.Dropdown(
                             choices=list(PROMPT_SAMPLES.keys()),
                             label="Sample Prompts"
@@ -275,9 +302,7 @@ def create_interface():
                 
                 gr.Markdown("## Generated Long Videos")
                 with gr.Row():
-                    # shot_video = gr.Video(label="Video")
                     captioned_video = gr.Video(label="Captioned Video")
-                        # 二维码相关组件
                 with gr.Row():
                     with gr.Column(scale=1):
                         generate_qr_btn = gr.Button("Generate QR code for Video")
@@ -293,29 +318,31 @@ def create_interface():
         optimize_btn.click(
             fn=update_optimized_prompt,
             inputs=[prompt_input, guideline_input, model_input, image_input],
-            outputs=optimized_prompt
+            outputs=optimized_prompt,
+            concurrency_limit=8
         )
 
-        # 当选择模版时更新 prompt 输入框
         template_dropdown.change(
             fn=update_prompt,
             inputs=template_dropdown,
             outputs=story_input
         )
         
-        def generate_videos_with_comparison(original_prompt, optimized_prompt, bucket, image, comparison_mode, seed):
-            if comparison_mode:
-                # Generate both original and optimized videos
-                return generate_comparison_videos(original_prompt, optimized_prompt, bucket, image, seed)
-            else:
-                # Generate only optimized video
-                optimized = generate_video(optimized_prompt, bucket, image, seed)
-                return None, optimized
+        def generate_videos_with_comparison(session, original_prompt, optimized_prompt, bucket, image, comparison_mode, seed):
+            with file_lock:
+                if comparison_mode:
+                    # Generate both original and optimized videos
+                    return generate_comparison_videos(original_prompt, optimized_prompt, bucket, image, seed, session.work_dir)
+                else:
+                    # Generate only optimized video
+                    optimized = generate_video(optimized_prompt, bucket, image, seed, session.work_dir)
+                    return None, optimized
         
         generate_comparison_btn.click(
             fn=generate_videos_with_comparison,
-            inputs=[prompt_input, optimized_prompt, bucket_input, image_input, comparison_mode_video, video_seed],
-            outputs=[original_video, optimized_video]
+            inputs=[session, prompt_input, optimized_prompt, bucket_input, image_input, comparison_mode_video, video_seed],
+            outputs=[original_video, optimized_video],
+            concurrency_limit=8
         )
 
         # Canvas tab event handlers
@@ -326,30 +353,33 @@ def create_interface():
         canvas_optimize_btn.click(
             fn=update_canvas_prompts,
             inputs=[canvas_prompt_input, canvas_model_input],
-            outputs=[canvas_optimized_prompt, canvas_negative_prompt]
+            outputs=[canvas_optimized_prompt, canvas_negative_prompt],
+            concurrency_limit=8
         )
         
-        def generate_images_with_comparison(original_prompt, optimized_prompt, negative_prompt, quality, num_images, size, seed, cfg_scale, comparison_mode):
+        def generate_images_with_comparison(session, original_prompt, optimized_prompt, negative_prompt, quality, num_images, size, seed, cfg_scale, comparison_mode):
             # Parse dimensions from size string
             dimensions = size.split(" (")[0].split(" x ")
             width = int(dimensions[0])
             height = int(dimensions[1])
             
-            if comparison_mode:
-                # Generate both original and optimized images
-                all_images = generate_image_pair(original_prompt, optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale)
-                if not all_images:
-                    return None, None
-                mid = len(all_images) // 2
-                return all_images[:mid], all_images[mid:]
-            else:
-                # Generate only optimized images
-                optimized_images = generate_single_image(optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale)
-                return None, optimized_images
+            with file_lock:
+                if comparison_mode:
+                    # Generate both original and optimized images
+                    all_images = generate_image_pair(original_prompt, optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale, session.work_dir)
+                    if not all_images:
+                        return None, None
+                    mid = len(all_images) // 2
+                    return all_images[:mid], all_images[mid:]
+                else:
+                    # Generate only optimized images
+                    optimized_images = generate_single_image(optimized_prompt, negative_prompt, quality, num_images, height, width, seed, cfg_scale, session.work_dir)
+                    return None, optimized_images
 
         canvas_generate_btn.click(
             fn=generate_images_with_comparison,
             inputs=[
+                session,
                 canvas_prompt_input,
                 canvas_optimized_prompt,
                 canvas_negative_prompt,
@@ -360,7 +390,8 @@ def create_interface():
                 canvas_cfg_scale,
                 comparison_mode_image
             ],
-            outputs=[original_images, optimized_images]
+            outputs=[original_images, optimized_images],
+            concurrency_limit=8
         )
 
         # Handle image selection
@@ -411,116 +442,118 @@ def create_interface():
                 return [None, None, gr.update(value="Error loading image"), gr.update(interactive=True), gr.update(selected="video_generation")]
 
         # Shot video tab event handlers
-        def update_shots(story, model_name,num_shot,shot_type):
+        def update_shots(session, story, model_name, num_shot, shot_type):
             timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")+'_'+str(random.randint(1000, 9999))
             reel_gen = ReelGenerator(model_id=MODEL_OPTIONS[model_name])
-            if shot_type == 'Breakdown Shot':
-                shots = generate_shots(reel_gen, story,num_shot,False)
-            elif shot_type == 'Continuous Shot':
-                shots = generate_shots(reel_gen, story, num_shot,True)
-            os.makedirs(os.path.join('shot_images',timestamp_str), exist_ok=True) 
-            with open(os.path.join('shot_images', timestamp_str, 'shots.json'), 'w') as f:
-                json.dump(shots, f,indent=4,ensure_ascii=False)
-            return shots, gr.update(interactive=True),timestamp_str
+            
+            with file_lock:
+                if shot_type == 'Breakdown Shot':
+                    shots = generate_shots(reel_gen, story, num_shot, False)
+                elif shot_type == 'Continuous Shot':
+                    shots = generate_shots(reel_gen, story, num_shot, True)
+                    
+                shot_dir = session.get_path('shot_images', timestamp_str)
+                os.makedirs(shot_dir, exist_ok=True)
+                with open(os.path.join(shot_dir, 'shots.json'), 'w') as f:
+                    json.dump(shots, f, indent=4, ensure_ascii=False)
+                    
+            return shots, gr.update(interactive=True), timestamp_str
         
-        def on_select(gallery_output_images,evt: gr.SelectData):
+        def on_select(gallery_output_images, evt: gr.SelectData):
             selected_index = evt.index
             selected_path = gallery_output_images[selected_index]
             return selected_path[0]
 
-        def generate_shot_videos(story, shots, bucket, model_name, seed, cfg_scale, similarity_strength,shot_type,timestamp):
+        def generate_shot_videos(session, story, shots, bucket, model_name, seed, cfg_scale, similarity_strength, shot_type, timestamp):
             if not shots or 'shots' not in shots:
-                return  None, None, None, "Error: No shots data"
+                return None, None, None, "Error: No shots data"
                 
-            reel_gen = ReelGenerator(bucket_name=bucket,model_id=MODEL_OPTIONS[model_name])
+            reel_gen = ReelGenerator(bucket_name=bucket, model_id=MODEL_OPTIONS[model_name])
             
             try:
-                # Generate images for each shot
-                status = gr.update(value="Status: Generating images...")
-                yield  None, None, None, status
+                with file_lock:
+                    # Generate images for each shot
+                    status = gr.update(value="Status: Generating images...")
+                    yield None, None, None, status
 
-                if shot_type == 'Breakdown Shot':
-                    image_files = generate_shot_image(reel_gen, shots,timestamp, seed, cfg_scale, similarity_strength)
-                    yield  None, image_files, None, gr.update(value="Status: Images generated successfully")
-                    
-                    # Generate optimized prompts for each shot
-                    status = gr.update(value="Status: Generating prompts...")
-                    yield  None, image_files, None, status
-                    
-                    reel_prompts = generate_reel_prompts(reel_gen, shots, image_files)
-                    yield  None, image_files, reel_prompts, gr.update(value="Status: Prompts generated successfully")
-                    
-                    # Generate videos for each shot
-                    status = gr.update(value="Status: Generating videos...")
-                    yield  None, image_files, reel_prompts, status
-                    
-                    video_files = generate_shot_vidoes(reel_gen, image_files, reel_prompts)
-                    
-                    # Stitch videos together and add captions
-                    status = gr.update(value="Status: Stitching videos...")
-                    yield  None, image_files, reel_prompts, status
-                    
-                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots,timestamp)
-                    yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
+                    if shot_type == 'Breakdown Shot':
+                        image_files = generate_shot_image(reel_gen, shots, timestamp, seed, cfg_scale, similarity_strength, session_dir=session.work_dir)
+                        yield None, image_files, None, gr.update(value="Status: Images generated successfully")
+                        
+                        # Generate optimized prompts for each shot
+                        status = gr.update(value="Status: Generating prompts...")
+                        yield None, image_files, None, status
+                        
+                        reel_prompts = generate_reel_prompts(reel_gen, shots, image_files)
+                        yield None, image_files, reel_prompts, gr.update(value="Status: Prompts generated successfully")
+                        
+                        # Generate videos for each shot
+                        status = gr.update(value="Status: Generating videos...")
+                        yield None, image_files, reel_prompts, status
+                        
+                        video_files = generate_shot_vidoes(reel_gen, image_files, reel_prompts, session_dir=session.work_dir)
+                        
+                        # Stitch videos together and add captions
+                        status = gr.update(value="Status: Stitching videos...")
+                        yield None, image_files, reel_prompts, status
+                        
+                        _, captioned_video = sistch_vidoes(reel_gen, video_files, shots, timestamp, session_dir=session.work_dir)
+                        yield captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
 
-                elif shot_type == 'Continuous Shot':
-                    # 只生成第一张图片
-                    image_files = generate_shot_image(reel_gen, shots, timestamp,seed, cfg_scale, similarity_strength, True)
-                    yield  None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
+                    elif shot_type == 'Continuous Shot':
+                        # 只生成第一张图片
+                        image_files = generate_shot_image(reel_gen, shots, timestamp, seed, cfg_scale, similarity_strength, True, session_dir=session.work_dir)
+                        yield None, image_files, None, gr.update(value="Status: The first frame image generated successfully")
 
-                    # Generate optimized prompts for each shot
-                    status = gr.update(value="Status: Generating videos...")
-                    yield  None, image_files, None, status
+                        # Generate optimized prompts for each shot
+                        status = gr.update(value="Status: Generating videos...")
+                        yield None, image_files, None, status
 
-                    ref_image_files = [image_files[0]]
-                    save_path_folder = os.path.split(image_files[0])[0]
-                    video_files = []
-                    reel_prompts = []
-                    for idx, shot in enumerate(shots['shots']):
-                        _reel_prompts = generate_reel_prompts(reel_gen, {"shots":[shot]}, ref_image_files)
-                        _video_files = generate_shot_vidoes(reel_gen, ref_image_files, _reel_prompts)
-                        video_files += _video_files
-                        last_frame_image = os.path.join(save_path_folder,f"last_frame_{idx}.png")
-                        # print(f"extracting last_frame_image: {last_frame_image}")
+                        ref_image_files = [image_files[0]]
+                        save_path_folder = os.path.split(image_files[0])[0]
+                        video_files = []
+                        reel_prompts = []
+                        for idx, shot in enumerate(shots['shots']):
+                            _reel_prompts = generate_reel_prompts(reel_gen, {"shots":[shot]}, ref_image_files)
+                            _video_files = generate_shot_vidoes(reel_gen, ref_image_files, _reel_prompts, session_dir=session.work_dir)
+                            video_files += _video_files
+                            last_frame_image = os.path.join(save_path_folder,f"last_frame_{idx}.png")
 
-                        # extract last frame
-                        if idx < len(shots['shots'])-1:
-                            extract_last_frame(_video_files[0],last_frame_image)
-                            print(f"saved last_frame_image: {last_frame_image}")
+                            # extract last frame
+                            if idx < len(shots['shots'])-1:
+                                extract_last_frame(_video_files[0], last_frame_image)
+                                print(f"saved last_frame_image: {last_frame_image}")
 
-                            # update the ref image as last frame
-                            ref_image_files = [last_frame_image]
-                            image_files.append(last_frame_image)
-                            reel_prompts += _reel_prompts
-                            status = gr.update(value=f"Status: Generated video segment {idx+1}")
-                            yield  None, image_files, reel_prompts, status
+                                # update the ref image as last frame
+                                ref_image_files = [last_frame_image]
+                                image_files.append(last_frame_image)
+                                reel_prompts += _reel_prompts
+                                status = gr.update(value=f"Status: Generated video segment {idx+1}")
+                                yield None, image_files, reel_prompts, status
 
-                    # Stitch videos together and add captions
-                    status = gr.update(value="Status: Stitching videos...")
-                    yield  None, image_files, reel_prompts, status
-                    
-                    _, captioned_video = sistch_vidoes(reel_gen, video_files, shots,timestamp)
-                    yield  captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
-
-
-
-
-
+                        # Stitch videos together and add captions
+                        status = gr.update(value="Status: Stitching videos...")
+                        yield None, image_files, reel_prompts, status
+                        
+                        _, captioned_video = sistch_vidoes(reel_gen, video_files, shots, timestamp, session_dir=session.work_dir)
+                        yield captioned_video, image_files, reel_prompts, gr.update(value="Status: All steps completed successfully")
                 
             except Exception as e:
-                yield None, None, None, None, gr.update(value=f"Error: {str(e)}")
+                yield None, None, None, gr.update(value=f"Error: {str(e)}")
 
         # Connect shot video tab event handlers
         generate_shots_btn.click(
             fn=update_shots,
-            inputs=[story_input, shot_model_input,num_shot_input,shot_type_input],
-            outputs=[shots_json, generate_shot_video_btn,timestamp]
+            inputs=[session, story_input, shot_model_input, num_shot_input, shot_type_input],
+            outputs=[shots_json, generate_shot_video_btn, timestamp],
+            concurrency_limit=8
         )
         
         generate_shot_video_btn.click(
             fn=generate_shot_videos,
-            inputs=[story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input,shot_type_input,timestamp],
-            outputs=[ captioned_video, shot_images, reel_prompts_json, status_text]
+            inputs=[session, story_input, shots_json, shot_bucket_input, shot_model_input, video_seed, shot_cfg_scale_input, similarity_strength_input, shot_type_input, timestamp],
+            outputs=[captioned_video, shot_images, reel_prompts_json, status_text],
+            concurrency_limit=8
         )
 
         # Add event handlers for image selection and transfer
@@ -546,16 +579,17 @@ def create_interface():
                 tabs
             ]
         )
+        
         generate_qr_btn.click(
             fn=generate_qr_code,
-            inputs=[captioned_video,bucket_input],
+            inputs=[captioned_video, bucket_input],
             outputs=[qr_output],
             concurrency_limit=8
         )
         
         generate_image_qr_btn.click(
             fn=generate_image_qr_code,
-            inputs=[selected_image,bucket_input],  # 使用selected_image_file作为输入
+            inputs=[selected_image, bucket_input],
             outputs=[qr_output],
             concurrency_limit=8
         )
@@ -564,6 +598,13 @@ def create_interface():
             fn=on_select,
             inputs=shot_images,
             outputs=selected_image
+        )
+        
+        # 清理会话数据
+        demo.load(lambda: None, None, None).then(
+            lambda session: session.cleanup() if session else None,
+            inputs=[session],
+            outputs=None
         )
     
     return demo
@@ -576,5 +617,6 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=7860)
     args = parser.parse_args()
+    
     # Launch the interface
     demo.launch(share=True, server_name=args.host, server_port=args.port)

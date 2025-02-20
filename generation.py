@@ -152,7 +152,7 @@ def optimize_canvas_prompt(prompt, model_name="Nova Pro"):
     
     return prompt, negative_prompt
 
-def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
+def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5, session_dir=None):
     """Generate images in parallel for both original and optimized prompts"""
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         # Submit both image generation tasks
@@ -165,7 +165,8 @@ def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", q
             height,
             width,
             seed,
-            cfg_scale
+            cfg_scale,
+            session_dir
         )
         future_optimized = executor.submit(
             generate_single_image,
@@ -176,7 +177,8 @@ def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", q
             height,
             width,
             seed,
-            cfg_scale
+            cfg_scale,
+            session_dir
         )
         
         # Wait for both tasks to complete
@@ -192,7 +194,7 @@ def generate_image_pair(original_prompt, optimized_prompt, negative_prompt="", q
             
         return all_images
 
-def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5):
+def generate_single_image(prompt, negative_prompt="", quality="standard", num_images=1, height=720, width=1280, seed=0, cfg_scale=6.5, session_dir=None):
     """Generate image using Nova Canvas model"""
     body = json.dumps({
         "taskType": "TEXT_IMAGE",
@@ -222,17 +224,20 @@ def generate_single_image(prompt, negative_prompt="", quality="standard", num_im
         
         response_body = json.loads(response.get("body").read())
         
-        # Create temporary directory for saving images
-        local_dir = './generated_images'
+        # Create directory for saving images
+        if session_dir:
+            local_dir = os.path.join(session_dir, 'generated_images')
+        else:
+            local_dir = './generated_images'
         os.makedirs(local_dir, exist_ok=True)
         image_paths = []
         
-        # Save each image to a temporary file and collect paths
+        # Save each image to a file and collect paths
         for i, base64_image in enumerate(response_body.get("images", [])):
             image_bytes = base64.b64decode(base64_image)
             image = Image.open(io.BytesIO(image_bytes))
             rand_name = random_string_name()
-            path = f"{local_dir}/generated_{rand_name}.png"
+            path = os.path.join(local_dir, f"generated_{rand_name}.png")
             image.save(path)
             image_paths.append(path)
         
@@ -241,12 +246,8 @@ def generate_single_image(prompt, negative_prompt="", quality="standard", num_im
     except Exception as e:
         print(f"Error generating image: {str(e)}")
         return None
-        
-    except Exception as e:
-        print(f"Error downloading video: {str(e)}")
-        return None
 
-def generate_video(prompt, bucket, image=None, seed=0):
+def generate_video(prompt, bucket, image=None, seed=0, session_dir=None):
     if image is not None:
         image = process_image(image)
     
@@ -301,18 +302,17 @@ def generate_video(prompt, bucket, image=None, seed=0):
     
     # Download video
     output_uri = f"{response['outputDataConfig']['s3OutputDataConfig']['s3Uri']}/output.mp4"
-    local_path = download_video(output_uri,GENERATED_VIDEOS_DIR)
+    videos_dir = os.path.join(session_dir, 'generated_videos') if session_dir else GENERATED_VIDEOS_DIR
+    local_path = download_video(output_uri, videos_dir)
     
     return local_path
 
-
-
-def generate_comparison_videos(original_prompt, optimized_prompt, bucket, image=None, seed=0):
+def generate_comparison_videos(original_prompt, optimized_prompt, bucket, image=None, seed=0, session_dir=None):
     # Create a thread pool executor
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
         # Submit both video generation tasks
-        future_original = executor.submit(generate_video, original_prompt, bucket, image, seed)
-        future_optimized = executor.submit(generate_video, optimized_prompt, bucket, image, seed)
+        future_original = executor.submit(generate_video, original_prompt, bucket, image, seed, session_dir)
+        future_optimized = executor.submit(generate_video, optimized_prompt, bucket, image, seed, session_dir)
         
         # Wait for both tasks to complete
         original_video = future_original.result()
