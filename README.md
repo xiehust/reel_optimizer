@@ -39,7 +39,12 @@ example:
 ## Installation
 
 1. Install the required Python packages:
-
+- create a virtual env 
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+- install in .venv
 ```bash
 pip install -r requirements.txt
 ```
