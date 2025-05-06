@@ -20,6 +20,7 @@ from config import (
     DEFAULT_BUCKET,
     DEFAULT_GUIDELINE,
     GENERATED_VIDEOS_DIR,
+    REEL_MODEL_ID,
     CANVAS_SIZE)
 from utils import (
     random_string_name,
@@ -32,7 +33,7 @@ from utils import (
 # Initialize AWS clients
 session = boto3.session.Session(region_name='us-east-1')
 client = session.client(service_name='bedrock-runtime', 
-                       config=Config(connect_timeout=1000, read_timeout=1000))
+                       config=Config(connect_timeout=600, read_timeout=600))
 bedrock_runtime = session.client("bedrock-runtime")
 
 # Constants
@@ -277,10 +278,10 @@ def generate_video(prompt, bucket, image=None, seed=0):
                 "bytes": img_base64
             }
         }]
-    
+    print(bucket)
     # Start async video generation
     invocation = bedrock_runtime.start_async_invoke(
-        modelId="amazon.nova-reel-v1:0",
+        modelId=REEL_MODEL_ID,
         modelInput=model_input,
         outputDataConfig={
             "s3OutputDataConfig": {

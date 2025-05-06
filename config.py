@@ -302,6 +302,7 @@ DEFAULT_GUIDELINE = "Amazon_Nova_Reel.pdf"
 GENERATED_VIDEOS_DIR = 'generated_videos'
 LITE_MODEL_ID = "us.amazon.nova-lite-v1:0"
 PRO_MODEL_ID = "us.amazon.nova-pro-v1:0"
+REEL_MODEL_ID = 'amazon.nova-reel-v1:1'
 
 # 预置的提示词模版
 PROMPT_SAMPLES = {
